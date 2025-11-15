@@ -1,0 +1,610 @@
+
+#include <time.h>
+
+#include "Bested.h"
+#undef Clamp // TODO we gotta do something about this...
+
+#include <raylib.h>
+#include <raymath.h>
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+//                          Raylib Helpers
+///////////////////////////////////////////////////////////////////////////
+
+#define DrawRectangleFrame(x, y, width, height, lineThick, color) \
+    DrawRectangleFrameRec((Rectangle){x, y, width, height}, lineThick, color)
+
+internal void DrawRectangleFrameRec(Rectangle rec, float lineThick, Color color) {
+    Rectangle Top    = { rec.x,                         rec.y,                          rec.width, lineThick                };
+    DrawRectangleRec(Top, color);
+
+    Rectangle Bottom = { rec.x,                         rec.y + rec.height - lineThick, rec.width, lineThick                };
+    DrawRectangleRec(Bottom, color);
+
+    Rectangle Left   = { rec.x,                         rec.y + lineThick,              lineThick, rec.height - lineThick*2 };
+    DrawRectangleRec(Left, color);
+
+    Rectangle Right  = { rec.x + rec.width - lineThick, rec.y + lineThick,              lineThick, rec.height - lineThick*2 };
+    DrawRectangleRec(Right, color);
+}
+
+
+internal inline Rectangle ShrinkRectangle(Rectangle rec, float value) {
+    Rectangle result = {
+        rec.x + value, rec.y + value,
+        rec.width   - value*2,
+        rec.height  - value*2,
+    };
+    return result;
+}
+
+
+#define FONT_SPACING 0
+
+typedef struct {
+    Font font;
+    s32 size;
+} Font_And_Size;
+
+// Perfect_Font LoadPerfectFont(const char *path, s32 font_size) {
+//     Perfect_Font result = {
+//         .font = LoadFontEx(path, font_size, NULL, 0),
+//         .font_size = font_size,
+//     };
+//     return result;
+// }
+
+// void UnloadPerfectFont(Perfect_Font font) { UnloadFont(font.font); }
+
+const char *    dynamic_font_path = NULL;
+Font_And_Size   dynamic_fonts_storage[512]; // TODO this would be better as a hashmap
+u32             dynamic_fonts_storage_count = 0;
+
+void InitDynamicFonts(const char *path) {
+    dynamic_font_path = path;
+    dynamic_fonts_storage_count = 0;
+}
+void UnloadDynamicFonts(void) {
+    dynamic_font_path = NULL;
+
+    for (u32 i = 0; i < dynamic_fonts_storage_count; i++) {
+        UnloadFont(dynamic_fonts_storage[i].font);
+    }
+    dynamic_fonts_storage_count = 0;
+}
+
+internal Font_And_Size GetFontWithSize(s32 font_size) {
+    s32 index = -1;
+    // TODO linear seach is bad? or it it good? I forget...
+    for (u32 i = 0; i < dynamic_fonts_storage_count; i++) {
+        if (dynamic_fonts_storage[i].size == font_size) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index == -1) {
+        ASSERT(dynamic_fonts_storage_count <= Array_Len(dynamic_fonts_storage));
+        index = dynamic_fonts_storage_count;
+        dynamic_fonts_storage[dynamic_fonts_storage_count++] = (Font_And_Size) {
+            .font = LoadFontEx(dynamic_font_path, font_size, NULL, 0),
+            .size = font_size,
+        };
+    }
+
+    return dynamic_fonts_storage[index];
+}
+
+void DrawDynamicText(const char *text, Vector2 position, s32 font_size, Color color) {
+    Font_And_Size font_and_size = GetFontWithSize(font_size);
+    DrawTextEx(font_and_size.font, text, position, font_and_size.size, FONT_SPACING, color);
+}
+
+Vector2 MeasureDynamicText(const char *text, s32 font_size) {
+    Font_And_Size font_and_size = GetFontWithSize(font_size);
+    return MeasureTextEx(font_and_size.font, text, font_and_size.size, FONT_SPACING);
+}
+
+
+
+
+
+
+
+
+
+typedef struct {
+    _Array_Header_;
+    s64 *items;
+} Int_Array;
+
+
+
+
+#define SUDOKU_SIZE                         9
+
+#define SUDOKU_MAX_MARKINGS                 (SUDOKU_SIZE + 1) // Account for 0
+
+
+// in pixels
+#define SUDOKU_CELL_SIZE                    60
+#define SUDOKU_CELL_OUTER_LINE_PADDING      (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+#define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 4)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+
+#define SUDOKU_CELL_LINE_COLOR              GRAY    // @Color
+#define SUDOKU_BOX_LINE_COLOR               BLACK   // @Color
+
+#define FONT_SIZE                           (SUDOKU_CELL_SIZE / 1)
+#define FONT_COLOR                          BLACK   // @Color
+
+#define FONT_SIZE_MARKING                   (SUDOKU_CELL_SIZE / 2.5)
+#define FONT_COLOR_MARKING                  BLUE    // @Color
+
+
+
+
+#define FONT_SIZE_MARKING_MAX_SIZE          (SUDOKU_CELL_SIZE / 2.5)
+#define FONT_SIZE_MARKING_MIN_SIZE          (SUDOKU_CELL_SIZE / 6)
+
+#define MARKING_ALLOWED_UPTO_SMALL_NUMBERS  4
+
+
+
+f32 map(f32 x, f32 min, f32 max, f32 start, f32 end) {
+    ASSERT(min <= max);
+    f32 a = (x - min) / (max - min); // map to [0..1]
+    return a * (end - start) + start; // lerp
+}
+
+s32 window_width  = 16*80;
+s32 window_height =  9*80;
+
+bool debug_draw_smaller_cell_hitbox = false;
+
+
+
+///////////////////////////////////////////////////////////////////////////
+//                          Sudoku Struct & Stuff
+///////////////////////////////////////////////////////////////////////////
+
+#define NO_DIGIT_PLACED     -1
+
+// SOA style, probably i bit overkill.
+typedef struct {
+    // NO_DIGIT_PLACED means no digit
+    s8 digits[SUDOKU_SIZE][SUDOKU_SIZE];
+
+    // bitfeilds descripbing witch markings are there.
+    struct Marking {
+        u16 uncertain;
+        u16   certain;
+        // TODO color's
+        // TODO maybe also lines, but they whouldnt be in this struct.
+    } markings[SUDOKU_SIZE][SUDOKU_SIZE];
+
+
+    struct Sudoku_UI {
+        bool is_selected;
+        bool is_hovering_over;
+    } ui[SUDOKU_SIZE][SUDOKU_SIZE];
+} Sudoku_Grid;
+
+typedef struct {
+    s8 *digit;
+    struct Marking   *marking;
+    struct Sudoku_UI *ui;
+} Sudoku_Grid_Cell;
+
+
+internal inline Sudoku_Grid_Cell get_cell(Sudoku_Grid *grid, u8 i, u8 j) {
+    ASSERT(Is_Between(i, 0, SUDOKU_SIZE) && Is_Between(j, 0, SUDOKU_SIZE));
+    Sudoku_Grid_Cell result = {
+        .digit          = &grid->digits  [j][i],
+        .marking        = &grid->markings[j][i],
+        .ui             = &grid->ui      [j][i],
+    };
+    return result;
+}
+
+internal Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
+    (void) grid; // maybe this grid will tell us where we are
+
+
+    Vector2 sudoku_top_left_corner = {
+        window_width /2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+        window_height/2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+    };
+
+    Vector2 position = Vector2Add(sudoku_top_left_corner, (Vector2){i*SUDOKU_CELL_SIZE, j*SUDOKU_CELL_SIZE});
+
+    Rectangle sudoku_cell = {
+        position.x,
+        position.y,
+        SUDOKU_CELL_SIZE,
+        SUDOKU_CELL_SIZE,
+    };
+
+    return sudoku_cell;
+}
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+//                          Save / Load Sudoku
+///////////////////////////////////////////////////////////////////////////
+
+#define MAX_TEMP_FILE_SIZE      (32 * KILOBYTE)
+// overwrites temeratry buffer every call.
+String temp_Read_Entire_File(const char *filename) {
+    local_persist u8 temp_file_storeage[MAX_TEMP_FILE_SIZE];
+
+    FILE *file = fopen(filename, "rb");
+    String result = ZEROED;
+    result.data = (void*) temp_file_storeage;
+
+    if (file) {
+        fseek(file, 0, SEEK_END);
+        s64 size = Min((s64)MAX_TEMP_FILE_SIZE, ftell(file));
+        fseek(file, 0, SEEK_SET);
+
+        if (size >= 0) {
+            result.length = size;
+            fread(result.data, 1, result.length, file);
+        }
+        fclose(file);
+    }
+
+    return result;
+}
+
+
+
+
+
+
+typedef u32     Magic_Number;
+typedef u32     Version_Number;
+
+
+u8 SUDOKU_MAGIC_NUMBER_ARRAY[sizeof(Version_Number)] = {'S', 'U', 'D', 'K'};
+#define SUDOKU_MAGIC_NUMBER         (*(u32*)SUDOKU_MAGIC_NUMBER_ARRAY)
+
+#define CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER      1
+
+
+
+#define SUDOKU_SIZE_VERSION_1           9
+
+typedef struct {
+    Magic_Number    magic_number;
+    Version_Number  version_number;
+
+    s8  digits_on_the_grid[SUDOKU_SIZE_VERSION_1][SUDOKU_SIZE_VERSION_1];
+
+    struct Markings_V1 {
+        u16 uncertain;
+        u16   certain;
+    } digit_markings_on_the_grid[SUDOKU_SIZE_VERSION_1][SUDOKU_SIZE_VERSION_1];
+} Sudoku_Save_Struct_Version_1;
+
+typedef Sudoku_Save_Struct_Version_1        Sudoku_Save_Struct;
+static_assert(CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER == 1, "to change when new version");
+
+
+
+
+
+static_assert(Member_Size(Sudoku_Save_Struct, digits_on_the_grid) == Member_Size(Sudoku_Grid, digits), "change when we can change the size of the grid.");
+
+
+// returns NULL on succsess, else returns error message
+internal const char *load_sudoku_version_1(const char *filename, Sudoku_Grid *result) {
+    String file = temp_Read_Entire_File(filename);
+    if (file.length == 0) return "Could not read file for some reason, or file was empty.";
+
+    if (file.length < sizeof(u64)) return "File was to small to contain header and version number";
+
+    Sudoku_Save_Struct_Version_1 *save_struct = (void*) file.data;
+
+
+    // Check if the file is valid.
+
+    // TODO extract this into its own function to help when making more load functions
+    if (save_struct->magic_number   != SUDOKU_MAGIC_NUMBER) return temp_sprintf("Magic number was incorrect. wanted (0x%X), got (0x%X)", SUDOKU_MAGIC_NUMBER, save_struct->magic_number);
+    if (save_struct->version_number != 1) return temp_sprintf("Wanted version number (1), got (%d)", save_struct->version_number);
+
+    if (file.length != sizeof(Sudoku_Save_Struct_Version_1)) return temp_sprintf("incorrect file size for version 1, wanted (%ld), got (%ld)", sizeof(Sudoku_Save_Struct_Version_1), file.length);
+
+
+    for (u8 j = 0; j < Array_Len(save_struct->digits_on_the_grid); j++) {
+        for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
+            s8 digit = save_struct->digits_on_the_grid[j][i];
+            if (!Is_Between(digit, -1, 9)) return temp_sprintf("(%d, %d) was outside the acceptible range [-1, 9], was, %d", i, j, digit);
+
+            struct Markings_V1 markings = save_struct->digit_markings_on_the_grid[j][i];
+            (void) markings; // TODO validate this.
+        }
+    }
+
+
+    // load into Sudoku_Grid
+    if (result) {
+        static_assert(CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER == 1, "to change when new version");
+        static_assert(SUDOKU_SIZE_VERSION_1 == SUDOKU_SIZE, "would be pretty dump to miss this...");
+
+        for (u8 j = 0; j < Array_Len(save_struct->digits_on_the_grid); j++) {
+            for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
+                Sudoku_Grid_Cell cell = get_cell(result, i, j);
+
+                *cell.digit = save_struct->digits_on_the_grid[j][i];
+
+                cell.marking->uncertain = save_struct->digit_markings_on_the_grid[j][i].uncertain;
+                cell.marking->  certain = save_struct->digit_markings_on_the_grid[j][i].  certain;
+
+                // clear these also.
+                cell.ui->is_selected = false;
+                cell.ui->is_hovering_over = false;
+            }
+        }
+    }
+    return NULL;
+}
+
+// returns wheather or not the file was saved succsessfully.
+internal bool save_sudoku(const char *filename, Sudoku_Grid *to_save) {
+    ASSERT(to_save);
+
+    printf("Saving sudoku version %d\n", CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER);
+
+    Sudoku_Save_Struct sudoku_save_struct = ZEROED;
+
+    sudoku_save_struct.magic_number = SUDOKU_MAGIC_NUMBER;
+
+    sudoku_save_struct.version_number = CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER;
+
+    for (u8 j = 0; j < Array_Len(sudoku_save_struct.digits_on_the_grid); j++) {
+        for (u8 i = 0; i < Array_Len(sudoku_save_struct.digits_on_the_grid[j]); i++) {
+            sudoku_save_struct.digits_on_the_grid[j][i] = to_save->digits[j][i];
+
+            sudoku_save_struct.digit_markings_on_the_grid[j][i].uncertain = to_save->markings[j][i].uncertain; // TODO actually save this at some point. when its being used
+            sudoku_save_struct.digit_markings_on_the_grid[j][i].  certain = to_save->markings[j][i].  certain; // TODO actually save this at some point. when its being used
+        }
+    }
+
+
+    // raylib function. dont really need this but whatever.
+    return SaveFileData(filename, &sudoku_save_struct, sizeof(sudoku_save_struct));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKeyPressed(key); }
+
+
+
+Arena_Pool pool = ZEROED;
+
+
+const char *save_path = "./build/save.sudoku";
+
+int main(void) {
+
+    Arena *scratch = Pool_Get(&pool);
+
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+    InitWindow(window_width, window_height, "Sudoku");
+
+    InitDynamicFonts("./assets/font/iosevka-light.ttf");
+
+    Sudoku_Grid grid = ZEROED;
+    {
+        const char *error = load_sudoku_version_1(save_path, &grid);
+        if (error) {
+            fprintf(stderr, "Failed To Load Save '%s': %s\n", save_path, error);
+        } else {
+            printf("Succsessfully loaded save file '%s'\n", save_path);
+        }
+    }
+
+
+    while (!WindowShouldClose()) {
+        Arena_Clear(scratch);
+
+        BeginDrawing();
+        ClearBackground(WHITE); // @Color
+
+        window_width    = GetScreenWidth();
+        window_height   = GetScreenHeight();
+
+
+        Vector2 mouse_pos                   = GetMousePosition();
+        bool    mouse_left_clicked          = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+        bool    mouse_left_down             = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+        bool    keyboard_shift_down         = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
+        bool    keyboard_control_down       = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        bool    keyboard_delete_pressed     = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
+
+        // determines wheather a number was pressed to put it into the grid.
+        s8 number_pressed = NO_DIGIT_PLACED;
+        u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
+        for (u32 i = 0; i < Array_Len(number_keys); i++) {
+            if (IsKeyPressed(number_keys[i]))   number_pressed = i;
+        }
+
+
+
+        toggle_when_pressed(&debug_draw_smaller_cell_hitbox, KEY_F1);
+
+
+        Vector2 sudoku_top_left_corner = {
+            window_width /2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+            window_height/2 - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+        };
+
+
+        // update sudoku grid.
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
+                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
+
+                bool mouse_is_over = CheckCollisionPointRec(mouse_pos, cell_bounds);
+                cell.ui->is_hovering_over = mouse_is_over;
+                if (mouse_left_clicked) {
+                    // if shift is down, dont unselect.
+                    cell.ui->is_selected = mouse_is_over || (cell.ui->is_selected && (keyboard_shift_down || keyboard_control_down));
+                }
+
+                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
+                if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.4));
+
+                if (mouse_left_down && CheckCollisionPointRec(mouse_pos, smaller_hitbox)) {
+                    cell.ui->is_selected = true;
+                }
+
+
+                if (cell.ui->is_selected) {
+                    if (number_pressed != NO_DIGIT_PLACED) {
+                        if (keyboard_shift_down && keyboard_control_down) {
+                            // this colors the cell, TODO
+                        } else if (keyboard_shift_down) {
+                            // TODO dont place if there is a digit there
+                            // TODO make them all the same thing after this turn
+                            cell.marking->uncertain ^= 1 << (number_pressed); // zero is valid to.
+                        } else if (keyboard_control_down) {
+                            cell.marking->  certain ^= 1 << (number_pressed); // zero is valid to.
+                        } else {
+                            *cell.digit = number_pressed;   // @Place_Digit
+                        }
+                    }
+
+                    if (keyboard_delete_pressed)                *cell.digit = NO_DIGIT_PLACED;  // @Place_Digit
+                }
+            }
+        }
+
+
+        // draw sudoku grid
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
+                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
+
+
+                DrawRectangleFrameRec(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING, SUDOKU_CELL_LINE_COLOR);
+
+
+                if (*cell.digit != NO_DIGIT_PLACED) {
+                    // TODO do it smart
+                    // char buf[2] = ZEROED;
+                    // DrawTextCodepoint();
+                    const char *text = TextFormat("%d", *cell.digit);
+
+                    Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE);
+
+                    Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, FONT_SPACING);
+                    Vector2 text_position = {
+                        cell_bounds.x + SUDOKU_CELL_SIZE/2 - text_size.x/2,
+                        cell_bounds.y + SUDOKU_CELL_SIZE/2 - FONT_SIZE/2,
+                    };
+                    DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, FONT_SPACING, FONT_COLOR);
+                } else {
+                    // draw uncertain and certain digits
+                    Int_Array uncertain_numbers = { .allocator = scratch };
+                    Int_Array certain_numbers   = { .allocator = scratch };
+
+                    for (u8 k = 0; k <= 9; k++) {
+                        if (cell.marking->uncertain & (1 << k)) Array_Push(&uncertain_numbers, k);
+                        if (cell.marking->  certain & (1 << k)) Array_Push(&  certain_numbers, k);
+                    }
+
+                    // draw small certen numbers in the middle of the box
+                    if (certain_numbers.count != 0) {
+                        char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
+                        for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
+
+                        s32 font_size = FONT_SIZE_MARKING_MAX_SIZE;
+                        if (certain_numbers.count > MARKING_ALLOWED_UPTO_SMALL_NUMBERS) {
+                            font_size = map(certain_numbers.count, MARKING_ALLOWED_UPTO_SMALL_NUMBERS, SUDOKU_MAX_MARKINGS, FONT_SIZE_MARKING_MAX_SIZE, FONT_SIZE_MARKING_MIN_SIZE);
+                        }
+
+                        Font_And_Size font_and_size = GetFontWithSize(font_size);
+
+                        Vector2 text_size = MeasureTextEx(font_and_size.font, buf, font_and_size.size, FONT_SPACING);
+                        Vector2 text_pos = {
+                            cell_bounds.x + SUDOKU_CELL_SIZE/2 - text_size.x/2,
+                            cell_bounds.y + SUDOKU_CELL_SIZE/2 - font_and_size.size/2,
+                        };
+                        DrawTextEx(font_and_size.font, buf, text_pos, font_and_size.size, FONT_SPACING, FONT_COLOR_MARKING);
+                    }
+                }
+
+
+                // hovering and stuff
+                // TODO selected should flow between cells, and not be drawn here
+                if (cell.ui->is_selected) {
+                    DrawRectangleFrameRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), 5, BLUE); // @Color
+                } else if (cell.ui->is_hovering_over) {
+                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), ColorAlpha(BLACK, 0.2)); // cool trick
+                }
+
+            }
+        }
+
+        // Boarder Lines
+        DrawRectangleFrame(
+            sudoku_top_left_corner.x - SUDOKU_CELL_OUTER_LINE_PADDING,
+            sudoku_top_left_corner.y - SUDOKU_CELL_OUTER_LINE_PADDING,
+            SUDOKU_CELL_SIZE * SUDOKU_SIZE + SUDOKU_CELL_OUTER_LINE_PADDING*2,
+            SUDOKU_CELL_SIZE * SUDOKU_SIZE + SUDOKU_CELL_OUTER_LINE_PADDING*2,
+            SUDOKU_CELL_OUTER_LINE_PADDING * 2,
+            SUDOKU_BOX_LINE_COLOR
+        );
+
+        // Lines that seperate the Boxes
+        for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
+                Vector2 position = Vector2Add(sudoku_top_left_corner, (Vector2){i*3*SUDOKU_CELL_SIZE, j*3*SUDOKU_CELL_SIZE});
+                Rectangle sudoku_box = {
+                    position.x, position.y,
+                    SUDOKU_CELL_SIZE * 3, SUDOKU_CELL_SIZE * 3,
+                };
+
+                DrawRectangleFrameRec(sudoku_box, SUDOKU_CELL_OUTER_LINE_PADDING, SUDOKU_BOX_LINE_COLOR);
+            }
+        }
+
+        EndDrawing();
+    }
+
+
+    bool result = save_sudoku(save_path, &grid);
+
+    UnloadDynamicFonts();
+
+    CloseWindow();
+
+    Pool_Free_Arenas(&pool);
+
+    return result ? 0 : 1;
+}
+
+
+
+#define BESTED_IMPLEMENTATION
+#include "Bested.h"
