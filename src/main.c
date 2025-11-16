@@ -115,19 +115,26 @@ typedef struct {
 #define SUDOKU_MAX_MARKINGS                 (SUDOKU_SIZE + 1) // Account for 0
 
 
-// in pixels
+// in pixels, 60 is highly divisible
 #define SUDOKU_CELL_SIZE                    60
 #define SUDOKU_CELL_OUTER_LINE_PADDING      (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 4)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 
+#define BACKGROUND_COLOR                    WHITE   // @Color
 #define SUDOKU_CELL_LINE_COLOR              GRAY    // @Color
 #define SUDOKU_BOX_LINE_COLOR               BLACK   // @Color
+
+
+#define SELECT_LINE_THICKNESS               (SUDOKU_CELL_SIZE / 12)
+#define SELECT_HIGHLIGHT_COLOR              BLUE    // @Color
+
 
 #define FONT_SIZE                           (SUDOKU_CELL_SIZE / 1)
 #define FONT_COLOR                          BLACK   // @Color
 
 
-// TODO maybe the markings use a different font? maybe the bond version.
+
+// TODO maybe the markings use a different font? maybe the bold version.
 
 #define FONT_COLOR_MARKING                  BLUE    // @Color
 
@@ -442,7 +449,7 @@ int main(void) {
         Arena_Clear(scratch);
 
         BeginDrawing();
-        ClearBackground(WHITE); // @Color
+        ClearBackground(BACKGROUND_COLOR);
 
         window_width    = GetScreenWidth();
         window_height   = GetScreenHeight();
@@ -624,14 +631,62 @@ int main(void) {
 
 
                 // hovering and stuff
-                // TODO selected should flow between cells, and not be drawn here
                 if (cell.ui->is_selected) {
-                    // DrawRectangleFrameRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), 5, BLUE); // @Color
+                    // drawing flowing selected
+                    bool is_selected_up         =                         j == 0                ? false : get_cell(&grid, i  , j-1).ui->is_selected;
+                    bool is_selected_down       =                         j == SUDOKU_SIZE - 1  ? false : get_cell(&grid, i  , j+1).ui->is_selected;
+                    bool is_selected_left       = i == 0                                        ? false : get_cell(&grid, i-1, j  ).ui->is_selected;
+                    bool is_selected_right      = i == SUDOKU_SIZE - 1                          ? false : get_cell(&grid, i+1, j  ).ui->is_selected;
+
+                    bool is_selected_up_left    = i == 0               || j == 0                ? false : get_cell(&grid, i-1, j-1).ui->is_selected;
+                    bool is_selected_up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : get_cell(&grid, i+1, j-1).ui->is_selected;
+                    bool is_selected_down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i-1, j+1).ui->is_selected;
+                    bool is_selected_down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i+1, j+1).ui->is_selected;
+
+
+                    bool draw_line_up           = !is_selected_up;
+                    bool draw_line_down         = !is_selected_down;
+                    bool draw_line_left         = !is_selected_left;
+                    bool draw_line_right        = !is_selected_right;
+
+                    bool draw_line_up_left      = draw_line_up   || draw_line_left  || (!is_selected_up_left    && is_selected_up   && is_selected_left );
+                    bool draw_line_up_right     = draw_line_up   || draw_line_right || (!is_selected_up_right   && is_selected_up   && is_selected_right);
+                    bool draw_line_down_left    = draw_line_down || draw_line_left  || (!is_selected_down_left  && is_selected_down && is_selected_left );
+                    bool draw_line_down_right   = draw_line_down || draw_line_right || (!is_selected_down_right && is_selected_down && is_selected_right);
+
+
+                    Rectangle cell_bounds       = get_cell_bounds(&grid, i, j);
+                    Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING);
+
+                    // orthoganal
+                    Rectangle line_up           = { select_bounds.x + SELECT_LINE_THICKNESS,                        select_bounds.y,                                                select_bounds.width - SELECT_LINE_THICKNESS*2,  SELECT_LINE_THICKNESS,                        };
+                    Rectangle line_down         = { select_bounds.x + SELECT_LINE_THICKNESS,                        select_bounds.y + select_bounds.height - SELECT_LINE_THICKNESS, select_bounds.width - SELECT_LINE_THICKNESS*2,  SELECT_LINE_THICKNESS,                        };
+                    Rectangle line_left         = { select_bounds.x,                                                select_bounds.y + SELECT_LINE_THICKNESS,                        SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
+                    Rectangle line_right        = { select_bounds.x + select_bounds.width - SELECT_LINE_THICKNESS,  select_bounds.y + SELECT_LINE_THICKNESS,                        SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
+                    // diagonal
+                    Rectangle line_up_left      = { select_bounds.x,                                                select_bounds.y,                                                SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+                    Rectangle line_up_right     = { select_bounds.x + select_bounds.width - SELECT_LINE_THICKNESS,  select_bounds.y,                                                SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+                    Rectangle line_down_left    = { select_bounds.x,                                                select_bounds.y + select_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+                    Rectangle line_down_right   = { select_bounds.x + select_bounds.width - SELECT_LINE_THICKNESS,  select_bounds.y + select_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
+
+
+                    if (draw_line_up        )   DrawRectangleRec(line_up,         SELECT_HIGHLIGHT_COLOR); //YELLOW);
+                    if (draw_line_down      )   DrawRectangleRec(line_down,       SELECT_HIGHLIGHT_COLOR); //RED);
+                    if (draw_line_left      )   DrawRectangleRec(line_left,       SELECT_HIGHLIGHT_COLOR); //PURPLE);
+                    if (draw_line_right     )   DrawRectangleRec(line_right,      SELECT_HIGHLIGHT_COLOR); //GREEN);
+
+                    if (draw_line_up_left   )   DrawRectangleRec(line_up_left,    SELECT_HIGHLIGHT_COLOR); //MAROON);
+                    if (draw_line_up_right  )   DrawRectangleRec(line_up_right,   SELECT_HIGHLIGHT_COLOR); //ORANGE);
+                    if (draw_line_down_left )   DrawRectangleRec(line_down_left,  SELECT_HIGHLIGHT_COLOR); //GOLD);
+                    if (draw_line_down_right)   DrawRectangleRec(line_down_right, SELECT_HIGHLIGHT_COLOR); //PINK);
+
+
                 } else if (cell.ui->is_hovering_over) {
                     DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), ColorAlpha(BLACK, 0.2)); // cool trick
                 }
             }
         }
+
 
 
         // Boarder Lines
@@ -654,83 +709,6 @@ int main(void) {
                 };
 
                 DrawRectangleFrameRec(sudoku_box, SUDOKU_CELL_OUTER_LINE_PADDING, SUDOKU_BOX_LINE_COLOR);
-            }
-        }
-
-
-        // Draw better selection
-        for (s32 j = 0; j < SUDOKU_SIZE; j++) {
-            for (s32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
-                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
-
-                if (!cell.ui->is_selected) continue;
-
-                cell_bounds = ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING);
-
-                #define SELECT_LINE_THICKNESS       5
-
-                // orthoganal
-                Rectangle line_up           = { cell_bounds.x + SELECT_LINE_THICKNESS,                      cell_bounds.y,                                              cell_bounds.width - SELECT_LINE_THICKNESS*2,    SELECT_LINE_THICKNESS,                        };
-                Rectangle line_down         = { cell_bounds.x + SELECT_LINE_THICKNESS,                      cell_bounds.y + cell_bounds.height - SELECT_LINE_THICKNESS, cell_bounds.width - SELECT_LINE_THICKNESS*2,    SELECT_LINE_THICKNESS,                        };
-                Rectangle line_left         = { cell_bounds.x,                                              cell_bounds.y + SELECT_LINE_THICKNESS,                      SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
-                Rectangle line_right        = { cell_bounds.x + cell_bounds.width - SELECT_LINE_THICKNESS,  cell_bounds.y + SELECT_LINE_THICKNESS,                      SELECT_LINE_THICKNESS,                          cell_bounds.height - SELECT_LINE_THICKNESS*2, };
-                // diagonal
-                Rectangle line_up_left      = { cell_bounds.x,                                              cell_bounds.y,                                              SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-                Rectangle line_up_right     = { cell_bounds.x + cell_bounds.width - SELECT_LINE_THICKNESS,  cell_bounds.y,                                              SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-                Rectangle line_down_left    = { cell_bounds.x,                                              cell_bounds.y + cell_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-                Rectangle line_down_right   = { cell_bounds.x + cell_bounds.width - SELECT_LINE_THICKNESS,  cell_bounds.y + cell_bounds.height - SELECT_LINE_THICKNESS, SELECT_LINE_THICKNESS,                          SELECT_LINE_THICKNESS,                        };
-
-
-                // i like this code better, but would have to make a macro or something to
-                // accses the fields, maybe later. if get_sounding_cells_is_seleted() is a common function
-                /*
-                bool is_selected_grid[3][3] = ZEROED;
-                for (s8 k = 0; k < 3; k++) {
-                    for (s8 l = 0; l < 3; l++) {
-                        s8 x = i + (l - 1);
-                        s8 y = j + (k - 1);
-                        if (Is_Between(x, 0, SUDOKU_SIZE-1) && Is_Between(y, 0, SUDOKU_SIZE-1)) {
-                            is_selected_grid[k][l] = get_cell(&grid, x, y).ui->is_selected;
-                        }
-                    }
-                }
-                */
-
-                // orthoganal
-                bool is_selected_up         =                         j == 0                ? false : get_cell(&grid, i  , j-1).ui->is_selected;
-                bool is_selected_down       =                         j == SUDOKU_SIZE - 1  ? false : get_cell(&grid, i  , j+1).ui->is_selected;
-                bool is_selected_left       = i == 0                                        ? false : get_cell(&grid, i-1, j  ).ui->is_selected;
-                bool is_selected_right      = i == SUDOKU_SIZE - 1                          ? false : get_cell(&grid, i+1, j  ).ui->is_selected;
-                // diagonal
-                bool is_selected_up_left    = i == 0               || j == 0                ? false : get_cell(&grid, i-1, j-1).ui->is_selected;
-                bool is_selected_up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : get_cell(&grid, i+1, j-1).ui->is_selected;
-                bool is_selected_down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i-1, j+1).ui->is_selected;
-                bool is_selected_down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i+1, j+1).ui->is_selected;
-
-
-                bool draw_line_up           = !is_selected_up;
-                bool draw_line_down         = !is_selected_down;
-                bool draw_line_left         = !is_selected_left;
-                bool draw_line_right        = !is_selected_right;
-
-                bool draw_line_up_left      = draw_line_up   || draw_line_left  || (!is_selected_up_left    && is_selected_up   && is_selected_left );
-                bool draw_line_up_right     = draw_line_up   || draw_line_right || (!is_selected_up_right   && is_selected_up   && is_selected_right);
-                bool draw_line_down_left    = draw_line_down || draw_line_left  || (!is_selected_down_left  && is_selected_down && is_selected_left );
-                bool draw_line_down_right   = draw_line_down || draw_line_right || (!is_selected_down_right && is_selected_down && is_selected_right);
-
-
-                #define SELECT_HIGHLIGHT_COLOR            BLUE
-
-                if (draw_line_up        )   DrawRectangleRec(line_up,         SELECT_HIGHLIGHT_COLOR); //YELLOW);
-                if (draw_line_down      )   DrawRectangleRec(line_down,       SELECT_HIGHLIGHT_COLOR); //RED);
-                if (draw_line_left      )   DrawRectangleRec(line_left,       SELECT_HIGHLIGHT_COLOR); //PURPLE);
-                if (draw_line_right     )   DrawRectangleRec(line_right,      SELECT_HIGHLIGHT_COLOR); //GREEN);
-
-                if (draw_line_up_left   )   DrawRectangleRec(line_up_left,    SELECT_HIGHLIGHT_COLOR); //MAROON);
-                if (draw_line_up_right  )   DrawRectangleRec(line_up_right,   SELECT_HIGHLIGHT_COLOR); //ORANGE);
-                if (draw_line_down_left )   DrawRectangleRec(line_down_left,  SELECT_HIGHLIGHT_COLOR); //GOLD);
-                if (draw_line_down_right)   DrawRectangleRec(line_down_right, SELECT_HIGHLIGHT_COLOR); //PINK);
             }
         }
 
