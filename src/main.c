@@ -7,93 +7,7 @@
 #include <raylib.h>
 #include <raymath.h>
 
-
-
-
-
-///////////////////////////////////////////////////////////////////////////
-//                          Raylib Helpers
-///////////////////////////////////////////////////////////////////////////
-
-#define DrawRectangleFrame(x, y, width, height, lineThick, color) \
-    DrawRectangleFrameRec((Rectangle){x, y, width, height}, lineThick, color)
-
-internal void DrawRectangleFrameRec(Rectangle rec, float lineThick, Color color) {
-    Rectangle Top    = { rec.x,                         rec.y,                          rec.width, lineThick                };
-    DrawRectangleRec(Top, color);
-
-    Rectangle Bottom = { rec.x,                         rec.y + rec.height - lineThick, rec.width, lineThick                };
-    DrawRectangleRec(Bottom, color);
-
-    Rectangle Left   = { rec.x,                         rec.y + lineThick,              lineThick, rec.height - lineThick*2 };
-    DrawRectangleRec(Left, color);
-
-    Rectangle Right  = { rec.x + rec.width - lineThick, rec.y + lineThick,              lineThick, rec.height - lineThick*2 };
-    DrawRectangleRec(Right, color);
-}
-
-
-internal inline Rectangle ShrinkRectangle(Rectangle rec, float value) {
-    Rectangle result = {
-        rec.x + value, rec.y + value,
-        rec.width   - value*2,
-        rec.height  - value*2,
-    };
-    return result;
-}
-
-
-
-typedef struct {
-    Font font;
-    s32 size;
-} Font_And_Size;
-
-
-global_variable const char *    dynamic_font_path = NULL;
-global_variable Font_And_Size   dynamic_fonts_storage[512];
-global_variable u32             dynamic_fonts_storage_count = 0;
-
-
-internal void InitDynamicFonts(const char *path) {
-    dynamic_font_path = path;
-    dynamic_fonts_storage_count = 0;
-}
-internal void UnloadDynamicFonts(void) {
-    dynamic_font_path = NULL;
-
-    for (u32 i = 0; i < dynamic_fonts_storage_count; i++) {
-        UnloadFont(dynamic_fonts_storage[i].font);
-    }
-    dynamic_fonts_storage_count = 0;
-}
-
-internal Font_And_Size GetFontWithSize(s32 font_size) {
-    ASSERT(dynamic_font_path && "Call InitDynamicFonts() before this function");
-
-    s32 index = -1;
-    // linear search is bad? or it it good? I forget...
-    for (u32 i = 0; i < dynamic_fonts_storage_count; i++) {
-        if (dynamic_fonts_storage[i].size == font_size) {
-            index = i;
-            break;
-        }
-    }
-
-    if (index == -1) {
-        ASSERT(dynamic_fonts_storage_count <= Array_Len(dynamic_fonts_storage));
-        index = dynamic_fonts_storage_count;
-        dynamic_fonts_storage[dynamic_fonts_storage_count++] = (Font_And_Size) {
-            .font = LoadFontEx(dynamic_font_path, font_size, NULL, 0),
-            .size = font_size,
-        };
-    }
-
-    return dynamic_fonts_storage[index];
-}
-
-// TODO
-// internal DrawTextCentered(Font_And_Size font_and_size, const char *text, Vector2 position, Color color);
+#include "raylib_helpers.c"
 
 
 
@@ -119,7 +33,14 @@ typedef struct {
 
 // in pixels, 60 is highly divisible
 #define SUDOKU_CELL_SIZE                    60
-#define SUDOKU_CELL_OUTER_LINE_PADDING      (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+
+#define SUDOKU_CELL_INNER_LINE_THICKNESS    1.0           // (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+#define SUDOKU_CELL_INNER_LINE_PADDING      (SUDOKU_CELL_INNER_LINE_THICKNESS/2)           // (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+#define SUDOKU_CELL_BOARDER_LINE_THICKNESS  3.0
+
+static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_LINE_THICKNESS, "must be true");
+
+
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 4)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 
 #define BACKGROUND_COLOR                    WHITE   // @Color
@@ -256,9 +177,14 @@ internal inline Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
 
     (void) grid; // maybe this grid will tell us where we are, eventually.
 
+    Vector2 top_left_corner = {
+        (window_width /2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
+        (window_height/2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
+    };
+
     Rectangle sudoku_cell = {
-        (i*SUDOKU_CELL_SIZE) + (window_width /2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
-        (j*SUDOKU_CELL_SIZE) + (window_height/2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+        top_left_corner.x + (i*SUDOKU_CELL_SIZE) + ((i/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
+        top_left_corner.y + (j*SUDOKU_CELL_SIZE) + ((j/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
         SUDOKU_CELL_SIZE,
         SUDOKU_CELL_SIZE,
     };
@@ -505,14 +431,10 @@ int main(void) {
         {
             toggle_when_pressed(&in_solve_mode, KEY_B);
 
-            Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE);
-
-            const char *text = in_solve_mode ? "SOLVE" : "BUILD";
-            Vector2 text_position = {
-                window_width/2 - MeasureTextEx(font_and_size.font, text, font_and_size.size, 0).x/2,
-                10,
-            };
-            DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, 0, FONT_COLOR);
+            const char *text = in_solve_mode ? "SOLVE"              : "BUILD";
+            Color text_color = in_solve_mode ? FONT_COLOR_MARKING   : FONT_COLOR;
+            Vector2 text_pos = { window_width/2, 10 + FONT_SIZE/2 };
+            DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
         }
 
 
@@ -737,8 +659,10 @@ int main(void) {
                 Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
                 Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
 
-
-                DrawRectangleFrameRec(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING, SUDOKU_CELL_LINE_COLOR);
+                {
+                    Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+                    DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, SUDOKU_CELL_LINE_COLOR);
+                }
 
 
                 if (*cell.digit != NO_DIGIT_PLACED) {
@@ -749,16 +673,10 @@ int main(void) {
                     // DrawTextCodepoint();
                     const char *text = TextFormat("%d", *cell.digit);
 
-                    Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE);
-
-                    Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
-                    Vector2 text_position = {
-                        cell_bounds.x + SUDOKU_CELL_SIZE/2 - text_size.x/2,
-                        cell_bounds.y + SUDOKU_CELL_SIZE/2 - FONT_SIZE/2,
-                    };
+                    Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
                     Color text_color = cell.marking->digit_placed_in_solve_mode ? FONT_COLOR_MARKING : FONT_COLOR;
 
-                    DrawTextEx(font_and_size.font, text, text_position, font_and_size.size, 0, text_color);
+                    DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
                 } else {
                     // draw uncertain and certain digits
                     Int_Array uncertain_numbers = { .allocator = scratch };
@@ -777,10 +695,9 @@ int main(void) {
                             // TODO do it smarter like above.
                             const char *text = TextFormat("%d", uncertain_numbers.items[k]);
 
-                            Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
-                            Vector2 text_pos = { cell_bounds.x - text_size.x/2, cell_bounds.y };
+                            Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
                             text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
-                            DrawTextEx(font_and_size.font, text, text_pos, font_and_size.size, 0, FONT_COLOR_MARKING);
+                            DrawTextCentered(font_and_size, text, text_pos, FONT_COLOR_MARKING);
                         }
                     }
 
@@ -799,14 +716,8 @@ int main(void) {
                             );
                         }
 
-                        Font_And_Size font_and_size = GetFontWithSize(font_size);
-
-                        Vector2 text_size = MeasureTextEx(font_and_size.font, buf, font_and_size.size, 0);
-                        Vector2 text_pos = {
-                            cell_bounds.x + SUDOKU_CELL_SIZE/2 - text_size.x/2,
-                            cell_bounds.y + SUDOKU_CELL_SIZE/2 - font_and_size.size/2,
-                        };
-                        DrawTextEx(font_and_size.font, buf, text_pos, font_and_size.size, 0, FONT_COLOR_MARKING);
+                        Vector2 text_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
+                        DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, FONT_COLOR_MARKING);
                     }
                 }
 
@@ -837,7 +748,7 @@ int main(void) {
 
 
                     Rectangle cell_bounds       = get_cell_bounds(&grid, i, j);
-                    Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING);
+                    Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
                     // orthoganal
                     Rectangle line_up           = { select_bounds.x + SELECT_LINE_THICKNESS,                        select_bounds.y,                                                select_bounds.width - SELECT_LINE_THICKNESS*2,  SELECT_LINE_THICKNESS,                        };
@@ -863,32 +774,51 @@ int main(void) {
 
 
                 } else if (cell.ui->is_hovering_over) {
-                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_OUTER_LINE_PADDING), ColorAlpha(BLACK, 0.2)); // cool trick // @Color
+                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), ColorAlpha(BLACK, 0.2)); // cool trick // @Color
                 }
             }
         }
 
 
-        Rectangle sudoku_top_left_corner_box = get_cell_bounds(&grid, 0, 0);
 
-        // Boarder Lines
-        DrawRectangleFrame(
-            sudoku_top_left_corner_box.x - SUDOKU_CELL_OUTER_LINE_PADDING,
-            sudoku_top_left_corner_box.y - SUDOKU_CELL_OUTER_LINE_PADDING,
-            SUDOKU_CELL_SIZE * SUDOKU_SIZE + SUDOKU_CELL_OUTER_LINE_PADDING*2,
-            SUDOKU_CELL_SIZE * SUDOKU_SIZE + SUDOKU_CELL_OUTER_LINE_PADDING*2,
-            SUDOKU_CELL_OUTER_LINE_PADDING * 2,
-            SUDOKU_BOX_LINE_COLOR
-        );
+        {
+            // Lines that seperate the Boxes
+            for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
+                    Rectangle ul_box = get_cell_bounds(&grid, i*3,     j*3    );
+                    Rectangle dr_box = get_cell_bounds(&grid, i*3 + 2, j*3 + 2);
 
-        // Lines that seperate the Boxes
-        for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
-            for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
-                Rectangle sudoku_box = get_cell_bounds(&grid, i*3, j*3);
-                sudoku_box.width  *= 3; // Ha Ha
-                sudoku_box.height *= 3; // Ha Ha
+                    Rectangle region_box = {
+                        ul_box.x,
+                        ul_box.y,
+                        (dr_box.x + dr_box.width ) - ul_box.x,
+                        (dr_box.y + dr_box.height) - ul_box.y,
+                    };
 
-                DrawRectangleFrameRec(sudoku_box, SUDOKU_CELL_OUTER_LINE_PADDING, SUDOKU_BOX_LINE_COLOR);
+                    DrawRectangleFrameRec(
+                        GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2),
+                        SUDOKU_CELL_BOARDER_LINE_THICKNESS,
+                        SUDOKU_BOX_LINE_COLOR
+                    );
+                }
+            }
+
+            { // this outer box hits 1 extra pixel.
+                Rectangle ul_box = get_cell_bounds(&grid, 0, 0);
+                Rectangle dr_box = get_cell_bounds(&grid, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
+
+                Rectangle region_box = {
+                    ul_box.x,
+                    ul_box.y,
+                    (dr_box.x + dr_box.width ) - ul_box.x,
+                    (dr_box.y + dr_box.height) - ul_box.y,
+                };
+
+                DrawRectangleFrameRec(
+                    GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS),
+                    SUDOKU_CELL_BOARDER_LINE_THICKNESS,
+                    SUDOKU_BOX_LINE_COLOR
+                );
             }
         }
 
