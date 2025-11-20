@@ -4,6 +4,11 @@
 #include "Bested.h"
 #undef Clamp // TODO we gotta do something about this...
 
+// TODO @Bested.h change to append
+#define Array_Append Array_Push
+
+
+
 #include <raylib.h>
 #include <raymath.h>
 
@@ -35,7 +40,6 @@ typedef struct {
 #define SUDOKU_CELL_SIZE                    60
 
 #define SUDOKU_CELL_INNER_LINE_THICKNESS    1.0           // (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
-#define SUDOKU_CELL_INNER_LINE_PADDING      (SUDOKU_CELL_INNER_LINE_THICKNESS/2)           // (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 #define SUDOKU_CELL_BOARDER_LINE_THICKNESS  3.0
 
 static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_LINE_THICKNESS, "must be true");
@@ -128,9 +132,18 @@ internal f32 map(f32 x, f32 min, f32 max, f32 start, f32 end) {
 //                          Sudoku Struct & Stuff
 ///////////////////////////////////////////////////////////////////////////
 
+
+// NOTE lower = higher priority
+typedef enum {
+    SUL_DIGIT       = 0,
+    SUL_CERTAIN     = 1,
+    SUL_UNCERTAIN   = 2,
+    SUL_COLOR       = 3,
+} Sudoku_UI_Layer;
+
+
 #define NO_DIGIT_PLACED     -1
 
-// SOA style, probably i bit overkill.
 typedef struct {
     // NO_DIGIT_PLACED means no digit
     s8 digits[SUDOKU_SIZE][SUDOKU_SIZE];
@@ -146,36 +159,58 @@ typedef struct {
         // TODO maybe also lines, but they whouldnt be in this struct.
     } markings[SUDOKU_SIZE][SUDOKU_SIZE];
 
+} Sudoku_Grid;
+
+typedef struct {
+    _Array_Header_;
+    Sudoku_Grid *items;
+} Sudoku_Grid_Array;
+
+
+
+
+// SOA style, probably i bit overkill.
+typedef struct {
+    Sudoku_Grid grid;
 
     struct Sudoku_UI {
         bool is_selected;
         bool is_hovering_over;
     } ui[SUDOKU_SIZE][SUDOKU_SIZE];
-} Sudoku_Grid;
+
+
+    // Undo
+    //
+    // the last item in this buffer is always the current grid.
+    Sudoku_Grid_Array undo_buffer;
+    u32 redo_count; // how many times you can redo.
+} Sudoku;
 
 typedef struct {
     s8 *digit;
     struct Marking   *marking;
     struct Sudoku_UI *ui;
-} Sudoku_Grid_Cell;
+} Sudoku_Cell;
 
 
-internal inline Sudoku_Grid_Cell get_cell(Sudoku_Grid *grid, u8 i, u8 j) {
-    ASSERT(Is_Between(i, 0, SUDOKU_SIZE) && Is_Between(j, 0, SUDOKU_SIZE));
-    Sudoku_Grid_Cell result = {
-        .digit          = &grid->digits  [j][i],
-        .marking        = &grid->markings[j][i],
-        .ui             = &grid->ui      [j][i],
+#define ASSERT_VALID_SUDOKU_ADDRESS(i, j)       ASSERT(Is_Between((i), 0, SUDOKU_SIZE) && Is_Between((j), 0, SUDOKU_SIZE))
+
+internal inline Sudoku_Cell get_cell(Sudoku *sudoku, u8 i, u8 j) {
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+    Sudoku_Cell result = {
+        .digit          = &sudoku->grid.digits  [j][i],
+        .marking        = &sudoku->grid.markings[j][i],
+        .ui             = &sudoku->ui           [j][i],
     };
     return result;
 }
 
-internal inline Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
+internal inline Rectangle get_cell_bounds(Sudoku *sudoku, u8 i, u8 j) {
     // while this dosnt nessesarily cause problems, i want this to be
     // used wherever get_cell is, and them having the same properties is nice
-    ASSERT(Is_Between(i, 0, SUDOKU_SIZE) && Is_Between(j, 0, SUDOKU_SIZE));
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
 
-    (void) grid; // maybe this grid will tell us where we are, eventually.
+    (void) sudoku; // maybe this will tell us where we are, someday.
 
     Vector2 top_left_corner = {
         (window_width /2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
@@ -193,14 +228,22 @@ internal inline Rectangle get_cell_bounds(Sudoku_Grid *grid, u8 i, u8 j) {
 }
 
 
+/*
+internal void put_digit_on_layer(Sudoku_Grid *grid, u8 i, u8 j, s8 digit, Sudoku_UI_Layer layer) {
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+    Sudoku_Grid_Cell cell = get_cell(grid, i, j);
 
-// NOTE lower = higher priority
-typedef enum {
-    SUL_DIGIT       = 0,
-    SUL_CERTAIN     = 1,
-    SUL_UNCERTAIN   = 2,
-    SUL_COLOR       = 3,
-} Sudoku_UI_Layer;
+    switch (layer) {
+        case SUL_DIGIT: {
+            if (*cell.digit == digit)
+        } break;
+        case SUL_CERTAIN:   { TODO("SUL_CERTAIN");  } break;
+        case SUL_UNCERTAIN: { TODO("SUL_UNCERTAIN");  } break;
+        case SUL_COLOR:     { TODO("SUL_COLOR");  } break;
+    }
+}
+*/
+
 
 
 
@@ -271,11 +314,11 @@ static_assert(CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER == 1, "to change when ne
 
 
 
-static_assert(Member_Size(Sudoku_Save_Struct, digits_on_the_grid) == Member_Size(Sudoku_Grid, digits), "change when we can change the size of the grid.");
+static_assert(Member_Size(Sudoku_Save_Struct, digits_on_the_grid) == Member_Size(Sudoku, grid.digits), "change when we can change the size of the grid.");
 
 
 // returns NULL on succsess, else returns error message
-internal const char *load_sudoku_version_1(const char *filename, Sudoku_Grid *result) {
+internal const char *load_sudoku_version_1(const char *filename, Sudoku *result) {
     String file = temp_Read_Entire_File(filename);
     if (file.length == 0) return "Could not read file for some reason, or file was empty.";
 
@@ -311,7 +354,7 @@ internal const char *load_sudoku_version_1(const char *filename, Sudoku_Grid *re
 
         for (u8 j = 0; j < Array_Len(save_struct->digits_on_the_grid); j++) {
             for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
-                Sudoku_Grid_Cell cell = get_cell(result, i, j);
+                Sudoku_Cell cell = get_cell(result, i, j);
 
                 *cell.digit = save_struct->digits_on_the_grid[j][i];
 
@@ -328,7 +371,7 @@ internal const char *load_sudoku_version_1(const char *filename, Sudoku_Grid *re
 }
 
 // returns wheather or not the file was saved succsessfully.
-internal bool save_sudoku(const char *filename, Sudoku_Grid *to_save) {
+internal bool save_sudoku(const char *filename, Sudoku *to_save) {
     ASSERT(to_save);
 
     printf("Saving sudoku version %d\n", CURRENT_SUDOKU_SAVE_STRUCT_VERSION_NUMBER);
@@ -341,10 +384,11 @@ internal bool save_sudoku(const char *filename, Sudoku_Grid *to_save) {
 
     for (u8 j = 0; j < Array_Len(sudoku_save_struct.digits_on_the_grid); j++) {
         for (u8 i = 0; i < Array_Len(sudoku_save_struct.digits_on_the_grid[j]); i++) {
-            sudoku_save_struct.digits_on_the_grid[j][i] = to_save->digits[j][i];
+            Sudoku_Cell cell = get_cell(to_save, i, j);
+            sudoku_save_struct.digits_on_the_grid[j][i] = *cell.digit;
 
-            sudoku_save_struct.digit_markings_on_the_grid[j][i].uncertain = to_save->markings[j][i].uncertain;
-            sudoku_save_struct.digit_markings_on_the_grid[j][i].  certain = to_save->markings[j][i].  certain;
+            sudoku_save_struct.digit_markings_on_the_grid[j][i].uncertain = cell.marking->uncertain;
+            sudoku_save_struct.digit_markings_on_the_grid[j][i].  certain = cell.marking->  certain;
         }
     }
 
@@ -383,9 +427,13 @@ int main(void) {
 
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
 
-    Sudoku_Grid grid = ZEROED;
+    Sudoku sudoku = ZEROED;
+    // make sure that load_sudoku_version_1(), respects this alloctor
+    sudoku.undo_buffer.allocator = Pool_Get(&pool);
+    Array_Reserve(&sudoku.undo_buffer, 512); // just give it some room.
+
     {
-        const char *error = load_sudoku_version_1(save_path, &grid);
+        const char *error = load_sudoku_version_1(save_path, &sudoku);
         if (error) {
             fprintf(stderr, "Failed To Load Save '%s': %s\n", save_path, error);
         } else {
@@ -393,9 +441,19 @@ int main(void) {
         }
     }
 
+#define Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku) Mem_Eq(&(sudoku)->grid, &(sudoku)->undo_buffer.items[(sudoku)->undo_buffer.count-1], sizeof((sudoku)->grid))
+
+    if (sudoku.undo_buffer.count == 0) {
+        Array_Append(&sudoku.undo_buffer, sudoku.grid);
+        sudoku.redo_count = 0;
+    }
+    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
 
 
     while (!WindowShouldClose()) {
+        ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
+
+
         Arena_Clear(scratch);
 
         BeginDrawing();
@@ -416,12 +474,18 @@ int main(void) {
 
         bool    keyboard_shift_or_control_down      = keyboard_shift_down || keyboard_control_down;
 
+
         bool    keyboard_direction_up_pressed       = IsKeyPressed(KEY_UP)      || IsKeyPressed(KEY_W);
         bool    keyboard_direction_down_pressed     = IsKeyPressed(KEY_DOWN)    || IsKeyPressed(KEY_S);
         bool    keyboard_direction_left_pressed     = IsKeyPressed(KEY_LEFT)    || IsKeyPressed(KEY_A);
         bool    keyboard_direction_right_pressed    = IsKeyPressed(KEY_RIGHT)   || IsKeyPressed(KEY_D);
 
         bool    keyboard_any_direction_pressed      = keyboard_direction_up_pressed || keyboard_direction_down_pressed || keyboard_direction_left_pressed || keyboard_direction_right_pressed;
+
+
+        bool    keyboard_key_z_pressed              = IsKeyPressed(KEY_Z);
+        bool    keyboard_key_x_pressed              = IsKeyPressed(KEY_X);
+
 
         toggle_when_pressed(&debug_draw_smaller_cell_hitbox,    KEY_F1);
         toggle_when_pressed(&debug_draw_cursor_position,        KEY_F2);
@@ -444,9 +508,9 @@ int main(void) {
         local_persist bool when_dragging_to_set_selected_to = true;
         if (!mouse_left_down) when_dragging_to_set_selected_to = true;
 
+
         local_persist s8 cursor_x = SUDOKU_SIZE / 2; // should be 4 (the middle)
         local_persist s8 cursor_y = SUDOKU_SIZE / 2; // should be 4 (the middle)
-
         {
             s8 prev_x = cursor_x;
             s8 prev_y = cursor_y;
@@ -463,20 +527,20 @@ int main(void) {
             //
             // if shift is not pressed, and the cursor couldnt move to the cell,
             // but will be able to, it dosn't move.
-            if (get_cell(&grid, cursor_x, cursor_y).ui->is_selected) {
+            if (get_cell(&sudoku, cursor_x, cursor_y).ui->is_selected) {
                 cursor_x = prev_x;
                 cursor_y = prev_y;
             }
 
             if (debug_draw_cursor_position) {
-                Rectangle rec = get_cell_bounds(&grid, cursor_x, cursor_y);
+                Rectangle rec = get_cell_bounds(&sudoku, cursor_x, cursor_y);
                 DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.5));
             }
         }
 
 
         ////////////////////////////////
-        //     placeing digits
+        //       placeing digits
         ////////////////////////////////
         Sudoku_UI_Layer layer_to_place;
         if      (keyboard_shift_down && keyboard_control_down) layer_to_place = SUL_COLOR;
@@ -493,7 +557,7 @@ int main(void) {
 
 
         ////////////////////////////////
-        //     removing digits
+        //       removing digits
         ////////////////////////////////
         // make sure that all boxes get the same result after pressing a key (all add or all remove)
         bool remove_number_this_press = true;
@@ -502,162 +566,233 @@ int main(void) {
 
 
 
-        // update sudoku grid
-        // phase 1
-        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
-                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
+        ////////////////////////////////
+        //         Undo / Redo
+        ////////////////////////////////
+
+        if (keyboard_control_down && keyboard_key_z_pressed) {
+            if (sudoku.undo_buffer.count > 1) {
+                sudoku.undo_buffer.count    -= 1;
+                sudoku.redo_count           += 1;
+                sudoku.grid = sudoku.undo_buffer.items[sudoku.undo_buffer.count - 1];
+            }
+        }
+
+        if (keyboard_control_down && keyboard_key_x_pressed) { // TODO cntl-x should be cut, but we dont have that yet.
+            if (sudoku.redo_count > 0) {
+                sudoku.undo_buffer.count    += 1;
+                sudoku.redo_count           -= 1;
+                sudoku.grid = sudoku.undo_buffer.items[sudoku.undo_buffer.count - 1];
+            }
+        }
 
 
-                // selected stuff
-                bool mouse_is_over = CheckCollisionPointRec(mouse_pos, cell_bounds);
-                cell.ui->is_hovering_over = mouse_is_over;
 
-                if (mouse_left_clicked) {
-                    if (mouse_is_over) {
-                        cursor_x = i; cursor_y = j; // put cursor wherever mouse is.
+        ////////////////////////////////////////////////
+        //            update sudoku grid
+        ////////////////////////////////////////////////
 
-                        if (keyboard_shift_or_control_down) {
-                            // start of deselection drag
-                            cell.ui->is_selected = !cell.ui->is_selected; // TOGGLE
+        {
+            ////////////////////////////////////////////////
+            //              Selection stuff
+            ////////////////////////////////////////////////
+
+            // phase 1
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    Sudoku_Cell cell        = get_cell(&sudoku, i, j);
+                    Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
+
+
+                    // selected stuff
+                    bool mouse_is_over = CheckCollisionPointRec(mouse_pos, cell_bounds);
+                    cell.ui->is_hovering_over = mouse_is_over;
+
+                    if (mouse_left_clicked) {
+                        if (mouse_is_over) {
+                            cursor_x = i; cursor_y = j; // put cursor wherever mouse is.
+
+                            if (keyboard_shift_or_control_down) {
+                                // start of deselection drag
+                                cell.ui->is_selected = !cell.ui->is_selected; // TOGGLE
+                            } else {
+                                // just this one will be selected
+                                cell.ui->is_selected = true;
+                            }
+                            when_dragging_to_set_selected_to = cell.ui->is_selected;
                         } else {
-                            // just this one will be selected
-                            cell.ui->is_selected = true;
+                            // only stay active if shift or cntl is down
+                            cell.ui->is_selected = cell.ui->is_selected && keyboard_shift_or_control_down;
                         }
-                        when_dragging_to_set_selected_to = cell.ui->is_selected;
-                    } else {
-                        // only stay active if shift or cntl is down
-                        cell.ui->is_selected = cell.ui->is_selected && keyboard_shift_or_control_down;
+                    }
+
+                    if (keyboard_any_direction_pressed) {
+                        bool cursor_is_here = ((s8)i == cursor_x) && ((s8)j == cursor_y);
+                        cell.ui->is_selected = cursor_is_here || (keyboard_shift_or_control_down && cell.ui->is_selected);
+                    }
+
+                }
+            }
+
+
+            // phase 2
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    Sudoku_Cell cell        = get_cell(&sudoku, i, j);
+                    Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
+
+                    // selected stuff, mouse dragging
+                    Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
+                    if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.4));
+
+                    if (mouse_left_down && CheckCollisionPointRec(mouse_pos, smaller_hitbox)) {
+                        cell.ui->is_selected = when_dragging_to_set_selected_to;
+                        cursor_x = i; cursor_y = j; // move the cursor here as well.
                     }
                 }
-
-                if (keyboard_any_direction_pressed) {
-                    bool cursor_is_here = ((s8)i == cursor_x) && ((s8)j == cursor_y);
-                    cell.ui->is_selected = cursor_is_here || (keyboard_shift_or_control_down && cell.ui->is_selected);
-                }
+            }
+        }
 
 
 
-                // placing digits stuff
-                if (cell.ui->is_selected) {
+        ////////////////////////////////////////////////
+        //              Placeing Digits
+        ////////////////////////////////////////////////
+        if (number_pressed != NO_DIGIT_PLACED) {
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    if (!cell.ui->is_selected) continue;
+
 
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
                     bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
                     bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
 
-                    if (number_pressed != NO_DIGIT_PLACED) {
-                        switch (layer_to_place) {
-                            case SUL_DIGIT: {
-                                if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
-                            } break;
-                            case SUL_CERTAIN: {
-                                if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->  certain & (1 << (number_pressed)));
-                            } break;
-                            case SUL_UNCERTAIN: {
-                                if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->uncertain & (1 << (number_pressed)));
-                            } break;
-                            case SUL_COLOR: { /* TODO Color the cell */ } break;
-                        }
+                    switch (layer_to_place) {
+                        case SUL_DIGIT: {
+                            if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
+                        } break;
+                        case SUL_CERTAIN: {
+                            if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->  certain & (1 << (number_pressed)));
+                        } break;
+                        case SUL_UNCERTAIN: {
+                            if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->uncertain & (1 << (number_pressed)));
+                        } break;
+                        case SUL_COLOR: { /* TODO("figure out what to Color the cell"); */ } break;
                     }
+                }
+            }
 
-                    if (keyboard_delete_pressed) {
-                        // TODO maybe if you have cntl press or something it dose something different?
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    if (!cell.ui->is_selected) continue;
 
-                        if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
-                        if (cell.marking->  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
-                        if (cell.marking->uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
-                        // Color is the lowest priority
+
+                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
+                    switch (layer_to_place) {
+                    case SUL_DIGIT: {
+                        if (slot_is_modifiable) {
+                            if (remove_number_this_press) {
+                                *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
+                                cell.marking->digit_placed_in_solve_mode = false;
+                            } else {
+                                *cell.digit = number_pressed;  // @Place_Digit
+                                cell.marking->digit_placed_in_solve_mode = in_solve_mode;
+                            }
+                        }
+                    } break;
+
+                    case SUL_CERTAIN: {
+                        if (!has_digit) {
+                            if (remove_number_this_press)   cell.marking->  certain = cell.marking->  certain & ~(1 << number_pressed);
+                            else                            cell.marking->  certain = cell.marking->  certain |  (1 << number_pressed);
+                        }
+                    } break;
+
+                    case SUL_UNCERTAIN: {
+                        if (!has_digit) {
+                            if (remove_number_this_press)   cell.marking->uncertain = cell.marking->uncertain & ~(1 << number_pressed);
+                            else                            cell.marking->uncertain = cell.marking->uncertain |  (1 << number_pressed);
+                        }
+                    } break;
+
+                    case SUL_COLOR: { /* TODO("Color the cell"); */ } break;
                     }
                 }
             }
         }
 
-        // phase 2
-        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
-                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
 
+        ////////////////////////////////////////////////
+        //             Removeing Digits
+        ////////////////////////////////////////////////
+        if (keyboard_delete_pressed) {
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    if (!cell.ui->is_selected) continue;
 
-                // placeing digits
-                // do this before the dragging stuff, it probably will never come up,
-                // but its more correct this way.
-                bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
-                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
 
+                    // TODO maybe if you have cntl press or something it dose something different?
 
-                if (cell.ui->is_selected) {
-                    if (number_pressed != NO_DIGIT_PLACED) {
-                        switch (layer_to_place) {
-
-                            case SUL_DIGIT: {
-                                if (slot_is_modifiable) {
-                                    if (remove_number_this_press) {
-                                        *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
-                                        cell.marking->digit_placed_in_solve_mode = false;
-                                    } else {
-                                        *cell.digit = number_pressed;  // @Place_Digit
-                                        cell.marking->digit_placed_in_solve_mode = in_solve_mode;
-                                    }
-                                }
-                            } break;
-
-                            case SUL_CERTAIN: {
-                                if (!has_digit) {
-                                    if (remove_number_this_press)   cell.marking->  certain = cell.marking->  certain & ~(1 << number_pressed);
-                                    else                            cell.marking->  certain = cell.marking->  certain |  (1 << number_pressed);
-                                }
-                            } break;
-
-                            case SUL_UNCERTAIN: {
-                                if (!has_digit) {
-                                    if (remove_number_this_press)   cell.marking->uncertain = cell.marking->uncertain & ~(1 << number_pressed);
-                                    else                            cell.marking->uncertain = cell.marking->uncertain |  (1 << number_pressed);
-                                }
-                            } break;
-
-                            case SUL_COLOR: { /* TODO Color the cell */ } break;
-                        }
-                    }
-
-                    if (keyboard_delete_pressed) {
-                        switch (layer_to_delete) {
-                            case SUL_DIGIT: {
-                                if (slot_is_modifiable) {
-                                    *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */
-                                    cell.marking->digit_placed_in_solve_mode = false;
-                                }
-                            } break;
-                            case SUL_CERTAIN:   { cell.marking->  certain = 0; } break;
-                            case SUL_UNCERTAIN: { cell.marking->uncertain = 0; } break;
-                            case SUL_COLOR: { /* TODO Remove Color */ } break;
-                        }
-                    }
+                    if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
+                    if (cell.marking->  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
+                    if (cell.marking->uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
+                    // Color is the lowest priority
                 }
+            }
 
 
-                // selected stuff, mouse dragging
-                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
-                if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.4));
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    if (!cell.ui->is_selected) continue;
 
-                if (mouse_left_down && CheckCollisionPointRec(mouse_pos, smaller_hitbox)) {
-                    cell.ui->is_selected = when_dragging_to_set_selected_to;
+                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
+                    switch (layer_to_delete) {
+                    case SUL_DIGIT: {
+                        if (slot_is_modifiable) {
+                            *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */
+                            cell.marking->digit_placed_in_solve_mode = false;
+                        }
+                    } break;
+                    case SUL_CERTAIN:   { cell.marking->  certain = 0; } break;
+                    case SUL_UNCERTAIN: { cell.marking->uncertain = 0; } break;
+                    case SUL_COLOR: { /* printf("TODO: Color the cell\n"); */ } break;
+                    }
                 }
             }
         }
 
 
+        ////////////////////////////////////////////////
+        //             Undo / Redo
+        ////////////////////////////////////////////////
+        if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku)) {
+            Array_Append(&sudoku.undo_buffer, sudoku.grid);
+            sudoku.redo_count = 0;
+        }
 
 
 
-
-        // draw sudoku grid
+        ////////////////////////////////////////////////
+        //             draw sudoku grid
+        ////////////////////////////////////////////////
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Grid_Cell    cell        = get_cell(&grid, i, j);
-                Rectangle           cell_bounds = get_cell_bounds(&grid, i, j);
+                Sudoku_Cell cell        = get_cell(&sudoku, i, j);
+                Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
 
                 {
                     Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
@@ -683,8 +818,8 @@ int main(void) {
                     Int_Array certain_numbers   = { .allocator = scratch };
 
                     for (u8 k = 0; k <= 9; k++) {
-                        if (cell.marking->uncertain & (1 << k)) Array_Push(&uncertain_numbers, k);
-                        if (cell.marking->  certain & (1 << k)) Array_Push(&  certain_numbers, k);
+                        if (cell.marking->uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
+                        if (cell.marking->  certain & (1 << k)) Array_Append(&  certain_numbers, k);
                     }
 
 
@@ -725,15 +860,15 @@ int main(void) {
                 // hovering and stuff
                 if (cell.ui->is_selected) {
                     // drawing flowing selected
-                    bool is_selected_up         =                         j == 0                ? false : get_cell(&grid, i  , j-1).ui->is_selected;
-                    bool is_selected_down       =                         j == SUDOKU_SIZE - 1  ? false : get_cell(&grid, i  , j+1).ui->is_selected;
-                    bool is_selected_left       = i == 0                                        ? false : get_cell(&grid, i-1, j  ).ui->is_selected;
-                    bool is_selected_right      = i == SUDOKU_SIZE - 1                          ? false : get_cell(&grid, i+1, j  ).ui->is_selected;
+                    bool is_selected_up         =                         j == 0                ? false : get_cell(&sudoku, i  , j-1).ui->is_selected;
+                    bool is_selected_down       =                         j == SUDOKU_SIZE - 1  ? false : get_cell(&sudoku, i  , j+1).ui->is_selected;
+                    bool is_selected_left       = i == 0                                        ? false : get_cell(&sudoku, i-1, j  ).ui->is_selected;
+                    bool is_selected_right      = i == SUDOKU_SIZE - 1                          ? false : get_cell(&sudoku, i+1, j  ).ui->is_selected;
 
-                    bool is_selected_up_left    = i == 0               || j == 0                ? false : get_cell(&grid, i-1, j-1).ui->is_selected;
-                    bool is_selected_up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : get_cell(&grid, i+1, j-1).ui->is_selected;
-                    bool is_selected_down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i-1, j+1).ui->is_selected;
-                    bool is_selected_down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : get_cell(&grid, i+1, j+1).ui->is_selected;
+                    bool is_selected_up_left    = i == 0               || j == 0                ? false : get_cell(&sudoku, i-1, j-1).ui->is_selected;
+                    bool is_selected_up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : get_cell(&sudoku, i+1, j-1).ui->is_selected;
+                    bool is_selected_down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : get_cell(&sudoku, i-1, j+1).ui->is_selected;
+                    bool is_selected_down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : get_cell(&sudoku, i+1, j+1).ui->is_selected;
 
 
                     bool draw_line_up           = !is_selected_up;
@@ -747,7 +882,7 @@ int main(void) {
                     bool draw_line_down_right   = draw_line_down || draw_line_right || (!is_selected_down_right && is_selected_down && is_selected_right);
 
 
-                    Rectangle cell_bounds       = get_cell_bounds(&grid, i, j);
+                    Rectangle cell_bounds       = get_cell_bounds(&sudoku, i, j);
                     Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
                     // orthoganal
@@ -785,8 +920,8 @@ int main(void) {
             // Lines that seperate the Boxes
             for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
-                    Rectangle ul_box = get_cell_bounds(&grid, i*3,     j*3    );
-                    Rectangle dr_box = get_cell_bounds(&grid, i*3 + 2, j*3 + 2);
+                    Rectangle ul_box = get_cell_bounds(&sudoku, i*3,     j*3    );
+                    Rectangle dr_box = get_cell_bounds(&sudoku, i*3 + 2, j*3 + 2);
 
                     Rectangle region_box = {
                         ul_box.x,
@@ -804,8 +939,8 @@ int main(void) {
             }
 
             { // this outer box hits 1 extra pixel.
-                Rectangle ul_box = get_cell_bounds(&grid, 0, 0);
-                Rectangle dr_box = get_cell_bounds(&grid, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
+                Rectangle ul_box = get_cell_bounds(&sudoku, 0, 0);
+                Rectangle dr_box = get_cell_bounds(&sudoku, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
 
                 Rectangle region_box = {
                     ul_box.x,
@@ -827,7 +962,7 @@ int main(void) {
     }
 
 
-    bool result = save_sudoku(save_path, &grid);
+    bool result = save_sudoku(save_path, &sudoku);
 
     UnloadDynamicFonts();
 
