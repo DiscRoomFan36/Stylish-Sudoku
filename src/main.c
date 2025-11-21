@@ -779,6 +779,7 @@ int main(void) {
 
                     // draw uncertain numbers around the edge of the box
                     if (uncertain_numbers.count) {
+                        ASSERT(uncertain_numbers.count <= Array_Len(MARKING_LOCATIONS));
                         Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE_UNCERTAIN); // what matters more? speed or binding energy?
                         for (u32 k = 0; k < uncertain_numbers.count; k++) {
                             // TODO do it smarter like above.
@@ -793,6 +794,8 @@ int main(void) {
 
                     // draw small certain numbers in the middle of the box
                     if (certain_numbers.count) {
+                        ASSERT(certain_numbers.count <= SUDOKU_MAX_MARKINGS);
+
                         char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
                         for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
 
