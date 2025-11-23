@@ -52,13 +52,28 @@ typedef struct {
 
 static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_LINE_THICKNESS, "must be true");
 
-
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 4)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+
+
 
 #define BACKGROUND_COLOR                    WHITE   // @Color
 #define SUDOKU_CELL_BACKGROUND_COLOR        WHITE   // @Color
 #define SUDOKU_CELL_LINE_COLOR              GRAY    // @Color
 #define SUDOKU_BOX_LINE_COLOR               BLACK   // @Color
+
+
+// TODO @Color
+//
+// turn "nth bit set" into a color
+const Color SUDOKU_COLOR_BITFIELD_COLORS[32] = {
+    /*  0         */ SUDOKU_CELL_BACKGROUND_COLOR,
+    /*  1,  2,  3 */ YELLOW,        BLUE,       GREEN,
+    /*  4,  5,  6 */ GRAY,          ORANGE,     PURPLE,
+    /*  7,  8,  9 */ DARKGRAY,      BROWN,      MAROON,
+};
+
+
+
 
 
 #define SELECT_LINE_THICKNESS               (SUDOKU_CELL_SIZE / 12)
@@ -800,41 +815,46 @@ int main(void) {
                     color_bits.allocator = scratch;
 
                     #define MAX_BITS_SET    (sizeof(cell.marking->color_bitfield)*8)
+                    static_assert(Array_Len(SUDOKU_COLOR_BITFIELD_COLORS) == MAX_BITS_SET, "no more than 32 colors please.");
 
                     // loop over all bits, and get the index's of the colors.
                     for (u32 k = 0; k < MAX_BITS_SET; k++) {
                         if (cell.marking->color_bitfield & (1 << k)) Array_Append(&color_bits, k);
                     }
 
-                    Color colors[MAX_BITS_SET] = {
-                        RED, YELLOW, BLUE, GREEN, GRAY, ORANGE,
-                        YELLOW, PURPLE, DARKGRAY, RAYWHITE, MAROON,
-                    };
 
                     if (color_bits.count == 0) {
                         DrawRectangleRec(cell_bounds, SUDOKU_CELL_BACKGROUND_COLOR);
                     } else if (color_bits.count == 1) {
-                        DrawRectangleRec(cell_bounds, colors[color_bits.items[0]]); // a very obvious special case.
+                        DrawRectangleRec(cell_bounds, SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[0]]); // a very obvious special case.
                     } else {
 
 
                         Vector2 points[MAX_BITS_SET];
                         u32 points_count = color_bits.count;
 
+                        // NOTE this option will always case lag, because its
+                        // turning off and on again in such quick succsesstion,
+                        //
+                        // these gards will help, but if every cell has colors will still slow down.
+                        if (debug_draw_color_points) BeginTextureMode(debug_texture);
                         for (u32 point_index = 0; point_index < points_count; point_index++) {
                             f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
                             f32 percent = (f32)point_index / (f32)points_count;
-                            // -percent makes the points be done in clockwise order.
-                            points[point_index].x = sinf(-percent * TAU - PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
-                            points[point_index].y = cosf(-percent * TAU - PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
 
-                            // NOTE this option will always case lag, because its
-                            // turning off and on again in such quick succsesstion,
+                            // -percent makes the points be done in clockwise order.
+                            //
+                            // * SUDOKU_CELL_SIZE means that the points are garenteed to be outside the cell.
+                            // (but thay could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
+                            points[point_index].x = sinf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
+                            points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
+
                             if (debug_draw_color_points) {
-                                Color color = colors[color_bits.items[point_index]];
-                                DebugDraw(DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color));
+                                Color color = SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[point_index]];
+                                DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
                             }
                         }
+                        if (debug_draw_color_points) EndTextureMode();
 
 
                         // i dont want to write a shader, so im gonna try math.
@@ -847,8 +867,8 @@ int main(void) {
                             u32 fan_points_count = 1;
 
                             Vector2 point = points[point_index];
-
                             Line line_checking = {.start = middle, .end = point};
+
                             bool seen_start = false;
                             bool seen_end   = false;
                             // 4 + 1 means we have to check the top edge of the rec again, could probablty
@@ -872,13 +892,13 @@ int main(void) {
                                         break;
                                     }
                                 }
-                                if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner in the picture.
+                                if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner of the rectangle.
                             }
 
                             ASSERT(seen_start && seen_end);
                             ASSERT(fan_points_count <= 5);
 
-                            Color color = colors[color_bits.items[point_index]];
+                            Color color = SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[point_index]];
                             for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
                                 fan_points[fan_index].x += cell_bounds.x;
                                 fan_points[fan_index].y += cell_bounds.y;
