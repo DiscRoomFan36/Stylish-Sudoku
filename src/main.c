@@ -388,6 +388,93 @@ struct {
 
 
 
+typedef struct {
+    struct {
+        f64 now; // in seconds
+        f64 dt;  // in seconds
+    } time;
+
+    struct {
+        Vector2 pos;
+        struct {
+            bool clicked;
+            bool down;
+        } left;
+    } mouse;
+
+
+    struct {
+        bool shift_down;
+        bool control_down;
+        bool delete_pressed;
+
+        struct {
+            bool up_pressed;
+            bool down_pressed;
+            bool left_pressed;
+            bool right_pressed;
+        } direction;
+
+        struct {
+            bool z_pressed;
+            bool x_pressed;
+        } key;
+
+        bool shift_or_control_down;
+        bool any_direction_pressed;
+
+    } keyboard;
+
+} Input;
+
+
+global_variable Input global_input = ZEROED;
+
+internal inline Input *get_input(void) {
+    return &global_input;
+}
+
+internal void update_input(void) {
+    Input *input = get_input();
+    Mem_Zero(input, sizeof(*input));
+
+    input->time.now = GetTime();
+    input->time.dt  = GetFrameTime();
+
+    input->mouse.pos                           = GetMousePosition();
+    input->mouse.left.clicked                  = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+    input->mouse.left.down                     = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+
+    input->keyboard.shift_down                 = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
+    input->keyboard.control_down               = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    input->keyboard.delete_pressed             = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
+
+    input->keyboard.direction.up_pressed       = IsKeyPressed(KEY_UP)        || IsKeyPressed(KEY_W);
+    input->keyboard.direction.down_pressed     = IsKeyPressed(KEY_DOWN)      || IsKeyPressed(KEY_S);
+    input->keyboard.direction.left_pressed     = IsKeyPressed(KEY_LEFT)      || IsKeyPressed(KEY_A);
+    input->keyboard.direction.right_pressed    = IsKeyPressed(KEY_RIGHT)     || IsKeyPressed(KEY_D);
+
+    input->keyboard.key.z_pressed              = IsKeyPressed(KEY_Z);
+    input->keyboard.key.x_pressed              = IsKeyPressed(KEY_X);
+
+
+    input->keyboard.shift_or_control_down      = input->keyboard.shift_down || input->keyboard.control_down;
+    input->keyboard.any_direction_pressed      = input->keyboard.direction.up_pressed || input->keyboard.direction.down_pressed || input->keyboard.direction.left_pressed || input->keyboard.direction.right_pressed;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // forward function decleration
 void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation);
@@ -496,68 +583,8 @@ int main(void) {
         ////////////////////////////////
         //        User Input
         ////////////////////////////////
-        struct {
-            struct {
-                f64 now; // in seconds
-                f64 dt;  // in seconds
-            } time;
-
-            struct {
-                Vector2 pos;
-                struct {
-                    bool clicked;
-                    bool down;
-                } left;
-            } mouse;
-
-
-            struct {
-                bool shift_down;
-                bool control_down;
-                bool delete_pressed;
-
-                struct {
-                    bool up_pressed;
-                    bool down_pressed;
-                    bool left_pressed;
-                    bool right_pressed;
-                } direction;
-
-                struct {
-                    bool z_pressed;
-                    bool x_pressed;
-                } key;
-
-                bool shift_or_control_down;
-                bool any_direction_pressed;
-
-            } keyboard;
-
-        } input = ZEROED;
-
-        input.time.now = GetTime();
-        input.time.dt  = GetFrameTime();
-
-        input.mouse.pos                           = GetMousePosition();
-        input.mouse.left.clicked                  = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-        input.mouse.left.down                     = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-
-        input.keyboard.shift_down                 = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
-        input.keyboard.control_down               = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-        input.keyboard.delete_pressed             = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
-
-        input.keyboard.direction.up_pressed       = IsKeyPressed(KEY_UP)        || IsKeyPressed(KEY_W);
-        input.keyboard.direction.down_pressed     = IsKeyPressed(KEY_DOWN)      || IsKeyPressed(KEY_S);
-        input.keyboard.direction.left_pressed     = IsKeyPressed(KEY_LEFT)      || IsKeyPressed(KEY_A);
-        input.keyboard.direction.right_pressed    = IsKeyPressed(KEY_RIGHT)     || IsKeyPressed(KEY_D);
-
-        input.keyboard.key.z_pressed              = IsKeyPressed(KEY_Z);
-        input.keyboard.key.x_pressed              = IsKeyPressed(KEY_X);
-
-
-        input.keyboard.shift_or_control_down      = input.keyboard.shift_down || input.keyboard.control_down;
-        input.keyboard.any_direction_pressed      = input.keyboard.direction.up_pressed || input.keyboard.direction.down_pressed || input.keyboard.direction.left_pressed || input.keyboard.direction.right_pressed;
-
+        update_input();
+        Input *input = get_input();
 
 
         toggle_when_pressed(&debug_draw_smaller_cell_hitbox,    KEY_F1);
@@ -584,7 +611,7 @@ int main(void) {
         //        Selection
         ////////////////////////////////
         local_persist bool when_dragging_to_set_selected_to = true;
-        if (!input.mouse.left.down) when_dragging_to_set_selected_to = true;
+        if (!input->mouse.left.down) when_dragging_to_set_selected_to = true;
 
 
         local_persist s8 cursor_x = SUDOKU_SIZE / 2; // should be 4 (the middle)
@@ -593,10 +620,10 @@ int main(void) {
             s8 prev_x = cursor_x;
             s8 prev_y = cursor_y;
 
-            if (input.keyboard.direction.up_pressed   ) cursor_y -= 1;
-            if (input.keyboard.direction.down_pressed ) cursor_y += 1;
-            if (input.keyboard.direction.left_pressed ) cursor_x -= 1;
-            if (input.keyboard.direction.right_pressed) cursor_x += 1;
+            if (input->keyboard.direction.up_pressed   ) cursor_y -= 1;
+            if (input->keyboard.direction.down_pressed ) cursor_y += 1;
+            if (input->keyboard.direction.left_pressed ) cursor_x -= 1;
+            if (input->keyboard.direction.right_pressed) cursor_x += 1;
 
             cursor_x = Proper_Mod(cursor_x, SUDOKU_SIZE);
             cursor_y = Proper_Mod(cursor_y, SUDOKU_SIZE);
@@ -621,10 +648,10 @@ int main(void) {
         //       placeing digits
         ////////////////////////////////
         Sudoku_UI_Layer layer_to_place;
-        if      (input.keyboard.shift_down && input.keyboard.control_down)  layer_to_place = SUL_COLOR;
-        else if (input.keyboard.shift_down)                                 layer_to_place = SUL_UNCERTAIN;
-        else if (input.keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
-        else                                                                layer_to_place = SUL_DIGIT;
+        if      (input->keyboard.shift_down && input->keyboard.control_down) layer_to_place = SUL_COLOR;
+        else if (input->keyboard.shift_down)                                 layer_to_place = SUL_UNCERTAIN;
+        else if (input->keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
+        else                                                                 layer_to_place = SUL_DIGIT;
 
         // determines wheather a number was pressed to put it into the grid.
         s8 number_pressed = NO_DIGIT_PLACED;
@@ -650,7 +677,7 @@ int main(void) {
         //         Undo / Redo
         ////////////////////////////////
 
-        if (input.keyboard.control_down && input.keyboard.key.z_pressed) {
+        if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
             if (sudoku.undo_buffer.count > 1) {
                 sudoku.undo_buffer.count    -= 1;
                 sudoku.redo_count           += 1;
@@ -659,7 +686,7 @@ int main(void) {
         }
 
         // TODO cntl-x should be cut, but we dont have that yet.
-        if (input.keyboard.control_down && input.keyboard.key.x_pressed) {
+        if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
             if (sudoku.redo_count > 0) {
                 sudoku.undo_buffer.count    += 1;
                 sudoku.redo_count           -= 1;
@@ -688,14 +715,14 @@ int main(void) {
 
 
                     // selected stuff
-                    bool mouse_is_over = CheckCollisionPointRec(input.mouse.pos, cell_bounds);
+                    bool mouse_is_over = CheckCollisionPointRec(input->mouse.pos, cell_bounds);
                     cell.ui->is_hovering_over = mouse_is_over;
 
-                    if (input.mouse.left.clicked) {
+                    if (input->mouse.left.clicked) {
                         if (mouse_is_over) {
                             cursor_x = i; cursor_y = j; // put cursor wherever mouse is.
 
-                            if (input.keyboard.shift_or_control_down) {
+                            if (input->keyboard.shift_or_control_down) {
                                 // start of deselection drag
                                 cell.ui->is_selected = !cell.ui->is_selected; // TOGGLE
                             } else {
@@ -705,13 +732,13 @@ int main(void) {
                             when_dragging_to_set_selected_to = cell.ui->is_selected;
                         } else {
                             // only stay active if shift or cntl is down
-                            cell.ui->is_selected = cell.ui->is_selected && input.keyboard.shift_or_control_down;
+                            cell.ui->is_selected = cell.ui->is_selected && input->keyboard.shift_or_control_down;
                         }
                     }
 
-                    if (input.keyboard.any_direction_pressed) {
+                    if (input->keyboard.any_direction_pressed) {
                         bool cursor_is_here = ((s8)i == cursor_x) && ((s8)j == cursor_y);
-                        cell.ui->is_selected = cursor_is_here || (input.keyboard.shift_or_control_down && cell.ui->is_selected);
+                        cell.ui->is_selected = cursor_is_here || (input->keyboard.shift_or_control_down && cell.ui->is_selected);
                     }
 
                 }
@@ -732,7 +759,7 @@ int main(void) {
                     Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
                     if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
 
-                    if (input.mouse.left.down && CheckCollisionPointRec(input.mouse.pos, smaller_hitbox)) {
+                    if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
                         cell.ui->is_selected = when_dragging_to_set_selected_to;
                         cursor_x = i; cursor_y = j; // move the cursor here as well.
                     }
@@ -874,7 +901,7 @@ int main(void) {
         ////////////////////////////////////////////////
         //             Removeing Digits
         ////////////////////////////////////////////////
-        if (input.keyboard.delete_pressed) {
+        if (input->keyboard.delete_pressed) {
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                     Sudoku_Cell cell = get_cell(&sudoku, i, j);
@@ -1133,7 +1160,7 @@ int main(void) {
             // how long it takes to go though one animation (seconds)
             const f64 animation_speed = 0.2;
             // speed up the animation the more elements tere, are. to try and catch up
-            f64 dt = input.time.dt / animation_speed * (f64)context.selection_animation_array.count;
+            f64 dt = input->time.dt / animation_speed * (f64)context.selection_animation_array.count;
 
             while (context.selection_animation_array.count > 0) {
                 Selected_Animation *animation = &context.selection_animation_array.items[0];
