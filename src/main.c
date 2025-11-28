@@ -338,35 +338,9 @@ internal void put_digit_on_layer(
 ///////////////////////////////////////////////////////////////////////////
 
 typedef struct {
-    s8 i, j;
-} Sudoku_Grid_Position;
-
-
-typedef enum {
-    SAAK_GROW_FROM_NOTHING,
-    SAAK_GROW_FROM_DIRECTION,
-
-    SAAK_SHRINK_TO_NOTHING,
-    SAAK_SHRINK_TO_DIRECTION,
-
-    SAAK_MASS_FADE_AWAY,
-    SAAK_MASS_FADE_AWAY_AND_ONE_APPEARS,
-} Selected_Animation_Animation_Kind;
-
-typedef struct {
-    Selected_Animation_Animation_Kind kind;
-
-    struct {
-        s8 x, y;
-    } direcion;
-
-    // TODO gonna need to store alot more when doing MASS_FADE_AWAY
-    Sudoku_Grid_Position pos;
-    bool state_changed_to_selected;
-
     // how far along in the animation it is.
     // [0..1]
-    f64 t;
+    f64 t_animation;
 
     Sudoku_UI_Grid prev_ui_state;
     Sudoku_UI_Grid curr_ui_state;
@@ -782,50 +756,27 @@ int main(void) {
 
             // all the selection stuff has now happened. now do some animation stuff.
             {
-                u32 changed_count = 0;
-                // u32 got_selected_count   = 0; // these will be used for MASS later...
-                // u32 got_unselected_count = 0; // these will be used for MASS later...
-
-                Selected_Animation new_animation = ZEROED;
-                new_animation.t = 0;
-                new_animation.prev_ui_state = previous_ui;
-                new_animation.curr_ui_state = sudoku.ui;
-
+                bool selected_changed = false;
                 for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                     for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                        // TODO cell_is_selected VS Is_Selected
                         bool is_selected = cell_is_selected(&sudoku, i, j);
 
-                        if (is_selected == previous_ui.grid[j][i].is_selected) continue;
-                        changed_count += 1;
-
-                        // if (is_selected) got_selected_count   += 1;
-                        // else             got_unselected_count += 1;
-
-                        new_animation.pos.i = i;
-                        new_animation.pos.j = j;
+                        if (is_selected != previous_ui.grid[j][i].is_selected) {
+                            selected_changed = true;
+                            break;
+                        }
                     }
                 }
 
-                // i dont know of any way this could happen... maybe when undo effects selection.
-                // ASSERT(got_selected_count <= 1);
-
-                if      (changed_count == 0) { /* do nothing. */ }
-                else if (changed_count == 1) {
-                    Sudoku_Grid_Position pos = new_animation.pos;
-                    new_animation.state_changed_to_selected = cell_is_selected(&sudoku, pos.i, pos.j);
-
-                    if (new_animation.state_changed_to_selected) {
-                        new_animation.kind = SAAK_GROW_FROM_NOTHING;
-                        // TODO direction
-                    } else {
-                        new_animation.kind = SAAK_SHRINK_TO_NOTHING;
-                        // TODO direction
-                    }
+                if (selected_changed) {
+                    Selected_Animation new_animation = {
+                        .t_animation   = 0,
+                        .prev_ui_state = previous_ui,
+                        .curr_ui_state = sudoku.ui,
+                    };
 
                     Array_Append(&context.selection_animation_array, new_animation);
-
-                } else {
-                    // TODO: MASS_FADE_AWAY
                 }
             }
         }
@@ -1162,6 +1113,8 @@ int main(void) {
 
                 // hovering
                 if (!cell.ui->is_selected && cell.ui->is_hovering_over) {
+                    // NOTE this code is not with the selection code because
+                    // it feels better when it acts immediately.
                     DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), ColorAlpha(BLACK, 0.2)); // cool trick // @Color
                 }
             }
@@ -1176,10 +1129,10 @@ int main(void) {
 
             while (context.selection_animation_array.count > 0) {
                 Selected_Animation *animation = &context.selection_animation_array.items[0];
-                animation->t += dt;
+                animation->t_animation += dt;
 
-                if (animation->t >= 1) {
-                    dt = animation->t - 1;
+                if (animation->t_animation >= 1) {
+                    dt = animation->t_animation - 1;
                     Array_Remove(&context.selection_animation_array, 0, 1);
                 } else {
                     break;
@@ -1373,20 +1326,36 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
 void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
     ASSERT(sudoku);
 
-    Sudoku_UI_Grid *ui = &sudoku->ui;
+    Sudoku_UI_Grid *curr_ui = &sudoku->ui;
+    f64 factor = 0;
     if (animation) {
-        ui = &animation->curr_ui_state;
+        curr_ui = &animation->curr_ui_state;
+
+        f64 t = animation->t_animation;
+        factor = sqrt(t);
     }
 
 
     // not selected loop, for animation
     if (animation) {
+        Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
+
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                if (Is_Selected(ui, i, j)) continue;
 
+                // if it is not selected this ui, and was selected in the previous ui,
+                // fade it out.
+                if (Is_Selected(curr_ui, i, j)) continue;
+                if (!Is_Selected(prev_ui, i, j)) continue;
 
+                Surrounding_Bools surrounding_is_selected = get_surrounding_is_selected(prev_ui, i, j);
 
+                Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
+                Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+
+                Color color = Fade(SELECT_HIGHLIGHT_COLOR, 1-factor);
+
+                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, surrounding_is_selected, color);
             }
         }
     }
@@ -1394,9 +1363,9 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
     // selected loop
     for (u32 j = 0; j < SUDOKU_SIZE; j++) {
         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-            if (!Is_Selected(ui, i, j)) continue;
+            if (!Is_Selected(curr_ui, i, j)) continue;
 
-            Surrounding_Bools is_selected = get_surrounding_is_selected(ui, i, j);
+            Surrounding_Bools surrounding_is_selected = get_surrounding_is_selected(curr_ui, i, j);
 
             Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
             Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
@@ -1404,29 +1373,15 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
             Color color = SELECT_HIGHLIGHT_COLOR;
 
             if (animation) {
-                switch (animation->kind) {
-                case SAAK_GROW_FROM_NOTHING: {
-                    if (animation->pos.i == (s8)i && animation->pos.j == (s8)j) {
-                        f64 t = animation->t;
-                        f64 factor = sqrt(t);
-
-                        select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                        color = Fade(color, factor);
-                    }
-                } break;
-
-                case SAAK_SHRINK_TO_NOTHING:   {
-                    printf("SAAK_SHRINK_TO_NOTHING\n");
-                } break;
-
-                case SAAK_GROW_FROM_DIRECTION: { TODO("SAAK_GROW_FROM_DIRECTION"); } break;
-                case SAAK_SHRINK_TO_DIRECTION: { TODO("SAAK_SHRINK_TO_DIRECTION"); } break;
-                case SAAK_MASS_FADE_AWAY:      { TODO("SAAK_MASS_FADE_AWAY");      } break;
-                case SAAK_MASS_FADE_AWAY_AND_ONE_APPEARS: { TODO("SAAK_MASS_FADE_AWAY_AND_ONE_APPEARS"); } break;
+                Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
+                // if it was not selected on the previous ui, do some animation
+                if (!Is_Selected(prev_ui, i, j)) {
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
                 }
             }
 
-            draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, is_selected, color);
+            draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, surrounding_is_selected, color);
         }
     }
 
