@@ -49,7 +49,7 @@ typedef struct {
 
 static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_LINE_THICKNESS, "must be true");
 
-#define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 4)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+#define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 8)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 
 
 
@@ -1109,20 +1109,35 @@ int main(void) {
 
 
                 // hovering
-                if (!cell.ui->is_selected && cell.ui->is_hovering_over) {
+                if (cell.ui->is_hovering_over) {
+                    f32 factor = !cell.ui->is_selected ? 0.2 : 0.05; // make it lighter when it is selected.
+                    Color color = Fade(BLACK, factor); // cool trick // @Color
+
                     // NOTE this code is not with the selection code because
                     // it feels better when it acts immediately.
-                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), ColorAlpha(BLACK, 0.2)); // cool trick // @Color
+                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), color);
                 }
             }
         }
 
 
         { // do selected animation
-            // how long it takes to go though one animation (seconds)
-            const f64 animation_speed = 0.2;
+            // how long it takes to go though one animation
+            const f64 animation_speed_in_seconds = 0.2;
+
+            f64 animation_speed = 1 / animation_speed_in_seconds;
+
+
+            local_persist bool debug_slow_down_animation = false;
+            toggle_when_pressed(&debug_slow_down_animation, KEY_F5);
+            if (debug_slow_down_animation) animation_speed = 0.1;
+
+
+            #define Square(x) ((x)*(x))
+
             // speed up the animation the more elements tere, are. to try and catch up
-            f64 dt = input->time.dt / animation_speed * (f64)context.selection_animation_array.count;
+            animation_speed *= Square(context.selection_animation_array.count);
+            f64 dt = input->time.dt * animation_speed;
 
             while (context.selection_animation_array.count > 0) {
                 Selected_Animation *animation = &context.selection_animation_array.items[0];
@@ -1324,18 +1339,38 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
     ASSERT(sudoku);
 
     Sudoku_UI_Grid *curr_ui = &sudoku->ui;
-    f64 factor = 0;
     if (animation) {
         curr_ui = &animation->curr_ui_state;
+    }
 
-        f64 t = animation->t_animation;
-        factor = sqrt(t);
+    Surrounding_Bools curr_surrounding_is_selected_grid[SUDOKU_SIZE][SUDOKU_SIZE] = ZEROED;
+    Surrounding_Bools prev_surrounding_is_selected_grid[SUDOKU_SIZE][SUDOKU_SIZE] = ZEROED;
+    {
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                curr_surrounding_is_selected_grid[j][i] = get_surrounding_is_selected(curr_ui, i, j);
+            }
+        }
+
+        if (animation) {
+            Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    prev_surrounding_is_selected_grid[j][i] = get_surrounding_is_selected(prev_ui, i, j);
+                }
+            }
+        } else {
+            Mem_Copy(prev_surrounding_is_selected_grid, curr_surrounding_is_selected_grid, sizeof(curr_surrounding_is_selected_grid));
+        }
     }
 
 
     // not selected loop, for animation
     if (animation) {
         Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
+
+        f64 t = animation->t_animation;
+        f64 factor = sqrt(t);
 
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
@@ -1345,14 +1380,69 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                 if (Is_Selected(curr_ui, i, j)) continue;
                 if (!Is_Selected(prev_ui, i, j)) continue;
 
-                Surrounding_Bools surrounding_is_selected = get_surrounding_is_selected(prev_ui, i, j);
+                // current_surrounding_is_selected
+                Surrounding_Bools csis = curr_surrounding_is_selected_grid[j][i];
+                // previous_surrounding_is_selected
+                Surrounding_Bools psis = prev_surrounding_is_selected_grid[j][i];
 
                 Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
                 Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-                Color color = Fade(SELECT_HIGHLIGHT_COLOR, 1-factor);
+                Color color = SELECT_HIGHLIGHT_COLOR;
 
-                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, surrounding_is_selected, color);
+                bool prev_no_surrunding_selected = !psis.up && !psis.right && !psis.down && !psis.left;
+                bool curr_no_surrunding_selected = !csis.up && !csis.right && !csis.down && !csis.left;
+
+                bool curr_only_up                =  csis.up && !csis.right && !csis.down && !csis.left;
+                bool curr_only_right             = !csis.up &&  csis.right && !csis.down && !csis.left;
+                bool curr_only_down              = !csis.up && !csis.right &&  csis.down && !csis.left;
+                bool curr_only_left              = !csis.up && !csis.right && !csis.down &&  csis.left;
+
+                if (prev_no_surrunding_selected && curr_no_surrunding_selected) {
+                    // idealy we would want all massive selections to shrink into themseleves,
+                    // but i have no idea how to do that...
+                    //
+                    // grab all lines, make bounding box, shrink bounding box.
+                    // make all lines be within the box...
+                    //
+                    // TODO this could work
+                    select_bounds = ShrinkRectanglePercent(select_bounds, 1-factor);
+
+                } else if (prev_no_surrunding_selected && curr_only_up)    {
+                    select_bounds.height  *= 1-factor;
+                    psis.up = true; // remove top edge of the select
+                    // remove the down edge of the thing up.
+                    curr_surrounding_is_selected_grid[j-1][i  ].down = true;
+
+                } else if (prev_no_surrunding_selected && curr_only_right) {
+                    select_bounds.x += select_bounds.width  * factor;
+                    select_bounds.width  *= 1-factor;
+                    psis.right = true; // remove right edge of the select
+                    // remove the left edge of the thing right.
+                    curr_surrounding_is_selected_grid[j  ][i+1].left = true;
+
+                } else if (prev_no_surrunding_selected && curr_only_down)  {
+                    select_bounds.y += select_bounds.height * factor;
+                    select_bounds.height *= 1-factor;
+                    psis.down = true; // remove down edge of the select
+                    // remove the up edge of the thing down.
+                    curr_surrounding_is_selected_grid[j+1][i  ].up = true;
+
+                } else if (prev_no_surrunding_selected && curr_only_left)  {
+                    select_bounds.width  *= 1-factor;
+                    psis.left = true; // remove left edge of the select
+                    // remove the right edge of the thing left.
+                    curr_surrounding_is_selected_grid[j  ][i-1].right = true;
+
+
+                } else {
+                    // else just fade away.
+                    // the big shrink is comeing. run
+                    color = Fade(color, 1-factor);
+                }
+
+
+                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, psis, color);
             }
         }
     }
@@ -1362,7 +1452,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
             if (!Is_Selected(curr_ui, i, j)) continue;
 
-            Surrounding_Bools surrounding_is_selected = get_surrounding_is_selected(curr_ui, i, j);
+            Surrounding_Bools csis = curr_surrounding_is_selected_grid[j][i];
 
             Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
             Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
@@ -1371,14 +1461,49 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
             if (animation) {
                 Sudoku_UI_Grid *prev_ui = &animation->prev_ui_state;
+                // TODO maybe precompute these?
+                // previous_surrounding_is_selected
+                Surrounding_Bools psis = prev_surrounding_is_selected_grid[j][i];
+
+                f64 t = animation->t_animation;
+                f64 factor = sqrt(t);
+
                 // if it was not selected on the previous ui, do some animation
                 if (!Is_Selected(prev_ui, i, j)) {
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
+
+                    if        ( psis.up && !psis.right && !psis.down && !psis.left) {
+                        // grow down.
+                        select_bounds.height *= factor;
+
+                    } else if (!psis.up &&  psis.right && !psis.down && !psis.left) {
+                        // grow left.
+                        select_bounds.x += select_bounds.width * (1-factor);
+                        select_bounds.width *= factor;
+
+                    } else if (!psis.up && !psis.right &&  psis.down && !psis.left) {
+                        // grow up
+                        select_bounds.y += select_bounds.height * (1-factor);
+                        select_bounds.height *= factor;
+
+                    } else if (!psis.up && !psis.right && !psis.down &&  psis.left) {
+                        // grow to the right.
+                        select_bounds.width  *= factor;
+
+                        // if the left cell was previously selected,
+                        // maybe deselect the left edge here...
+                        // so it can look like the box is closeing...
+
+
+                    } else {
+
+                        // grow from nothing.
+                        select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                        color = Fade(color, factor);
+                    }
                 }
             }
 
-            draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, surrounding_is_selected, color);
+            draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, csis, color);
         }
     }
 
