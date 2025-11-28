@@ -1248,6 +1248,30 @@ typedef union {
 } Surrounding_Bools;
 
 
+internal inline bool Is_Selected(Sudoku_UI_Grid *ui, u8 i, u8 j) {
+    ASSERT(ui);
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j); // this kinda sucks. but hopefully it'll compile out.
+    return ui->grid[j][i].is_selected;
+}
+
+internal Surrounding_Bools get_surrounding_is_selected(Sudoku_UI_Grid *ui, u8 i, u8 j) {
+    ASSERT(ui);
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+    Surrounding_Bools result = {
+        .up         =                         j == 0                ? false : ui->grid[j-1][i  ].is_selected,
+        .down       =                         j == SUDOKU_SIZE - 1  ? false : ui->grid[j+1][i  ].is_selected,
+        .left       = i == 0                                        ? false : ui->grid[j  ][i-1].is_selected,
+        .right      = i == SUDOKU_SIZE - 1                          ? false : ui->grid[j  ][i+1].is_selected,
+
+        .up_left    = i == 0               || j == 0                ? false : ui->grid[j-1][i-1].is_selected,
+        .up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : ui->grid[j-1][i+1].is_selected,
+        .down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : ui->grid[j+1][i-1].is_selected,
+        .down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : ui->grid[j+1][i+1].is_selected,
+    };
+    return result;
+}
+
+
 internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bounds, f32 thickness, Surrounding_Bools is_selected, Color color) {
     bool draw_line_up           = !is_selected.up;
     bool draw_line_down         = !is_selected.down;
@@ -1271,6 +1295,7 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
     Rectangle line_down_left    = { bounds.x,                               bounds.y + bounds.height - thickness,   thickness,                  thickness,                   };
     Rectangle line_down_right   = { bounds.x + bounds.width - thickness,    bounds.y + bounds.height - thickness,   thickness,                  thickness,                   };
 
+
     RectangleRemoveNegatives(&line_up);
     RectangleRemoveNegatives(&line_down);
     RectangleRemoveNegatives(&line_left);
@@ -1291,7 +1316,6 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
     ClipRectangleAIntoRectangleB(bounds, &line_up_right);
     ClipRectangleAIntoRectangleB(bounds, &line_down_left);
     ClipRectangleAIntoRectangleB(bounds, &line_down_right);
-
 
 
     if (draw_line_up        )   DrawRectangleRec(line_up,         color); //YELLOW);
@@ -1316,16 +1340,11 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
     }
 
 
-
-    #define Is_Selected(i, j)   (ui->grid[(j)][(i)].is_selected)
-
-
-
     // not selected loop, for animation
     if (animation) {
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                if (Is_Selected(i, j)) continue;
+                if (Is_Selected(ui, i, j)) continue;
 
 
 
@@ -1336,20 +1355,9 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
     // selected loop
     for (u32 j = 0; j < SUDOKU_SIZE; j++) {
         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-            if (!Is_Selected(i, j)) continue;
+            if (!Is_Selected(ui, i, j)) continue;
 
-            Surrounding_Bools is_selected = ZEROED;
-
-            is_selected.up         =                         j == 0                ? false : Is_Selected(i  , j-1);
-            is_selected.down       =                         j == SUDOKU_SIZE - 1  ? false : Is_Selected(i  , j+1);
-            is_selected.left       = i == 0                                        ? false : Is_Selected(i-1, j  );
-            is_selected.right      = i == SUDOKU_SIZE - 1                          ? false : Is_Selected(i+1, j  );
-
-            is_selected.up_left    = i == 0               || j == 0                ? false : Is_Selected(i-1, j-1);
-            is_selected.up_right   = i == SUDOKU_SIZE - 1 || j == 0                ? false : Is_Selected(i+1, j-1);
-            is_selected.down_left  = i == 0               || j == SUDOKU_SIZE-1    ? false : Is_Selected(i-1, j+1);
-            is_selected.down_right = i == SUDOKU_SIZE - 1 || j == SUDOKU_SIZE-1    ? false : Is_Selected(i+1, j+1);
-
+            Surrounding_Bools is_selected = get_surrounding_is_selected(ui, i, j);
 
             Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
             Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
