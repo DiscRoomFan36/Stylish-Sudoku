@@ -71,6 +71,34 @@ Vector2 RectangleCenter(Rectangle rec) {
 }
 
 
+typedef enum {
+    GROW_UP,
+    GROW_DOWN,
+    GROW_LEFT,
+    GROW_RIGHT,
+} Grow_Direction;
+
+internal Rectangle GrowRectangleInDirection(Rectangle rec, Grow_Direction direction, f32 factor) {
+    switch (direction) {
+        case GROW_UP:    {
+            rec.y += rec.height * (1-factor);
+            rec.height *= factor;
+        } break;
+
+        case GROW_LEFT:  {
+            rec.x += rec.width  * (1-factor);
+            rec.width  *= factor;
+        } break;
+
+        case GROW_DOWN:  { rec.height *= factor; } break;
+        case GROW_RIGHT: { rec.width  *= factor; } break;
+    }
+
+    return rec;
+}
+
+
+
 // returns a static list of 4 lines, clears on every call,
 // could fix that though
 internal Line *RectangleToLines(Rectangle rec) {

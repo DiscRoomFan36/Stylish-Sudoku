@@ -1482,79 +1482,205 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
             Color color = SELECT_HIGHLIGHT_COLOR;
 
+            // if it was the same as last time, just render them normally.
+            if (Is_Selected(prev_ui, i, j)) {
+                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, csis, color);
+                continue;
+            }
+
             // if it was not selected on the previous ui, do some animation
-            if (!Is_Selected(prev_ui, i, j)) {
-                // previous_surrounding_is_selected
-                Surrounding_Bools psis = prev_surrounding_is_selected_grid[j][i];
+            ASSERT(!Is_Selected(prev_ui, i, j));
 
-                f64 t = animation->t_animation;
-                f64 factor = sqrt(t);
+            // previous_surrounding_is_selected
+            Surrounding_Bools psis = prev_surrounding_is_selected_grid[j][i];
+
+            f64 t = animation->t_animation;
+            f64 factor = sqrt(t);
+
+            bool draw_selected_bounds_at_the_end = true;
+
+            enum {
+                UP    = (1<<0), // 1
+                RIGHT = (1<<1), // 2
+                DOWN  = (1<<2), // 4
+                LEFT  = (1<<3), // 8
+            };
+
+            u32 prev_selected = 0;
+            if (psis.up)    prev_selected |= UP;
+            if (psis.right) prev_selected |= RIGHT;
+            if (psis.down)  prev_selected |= DOWN;
+            if (psis.left)  prev_selected |= LEFT;
+
+            switch (prev_selected) {
+                case 0:     { //  0
+                    // grow from nothing
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+
+                case UP:    /*  1 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_DOWN,  factor); } break;
+                case LEFT:  /*  8 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_RIGHT, factor); } break;
+                case DOWN:  /*  2 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_UP,    factor); } break;
+                case RIGHT: /*  4 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_LEFT,  factor); } break;
 
 
-                enum All_Selected_Cases {
-                    NONE        = 0,                                    //  0
-                    UP          = (1<<0),                               //  1
-                    RIGHT       = (1<<1),                               //  2
-                    DOWN        = (1<<2),                               //  4
-                    LEFT        = (1<<3),                               //  8
+                case UP   | DOWN:  { // 5
+                    // draw closeing from both sides
+                    draw_selected_bounds_at_the_end = false;
 
-                    UP_AND_RIGHT            = UP   | RIGHT,             //  3
-                    UP_AND_DOWN             = UP   | DOWN,              //  5
-                    UP_AND_LEFT             = UP   | LEFT,              //  9
+                    {
+                        // grows up
+                        Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
+                        draw_lines.down = false;
 
-                    DOWN_AND_RIGHT          = DOWN | RIGHT,             //  6
-                    DOWN_AND_LEFT           = DOWN | LEFT,              // 12
+                        Rectangle rec = GrowRectangleInDirection(select_bounds, GROW_UP, factor/2);
 
-                    LEFT_AND_RIGHT          = LEFT | RIGHT,             // 10
+                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                    }
 
-                    UP_AND_DOWN_AND_RIGHT   = UP   | DOWN | RIGHT,      //  7
-                    UP_AND_DOWN_AND_LEFT    = UP   | DOWN | LEFT,       // 13
-                    UP_AND_LEFT_AND_RIGHT   = UP   | LEFT | RIGHT,      // 11
-                    DOWN_AND_LEFT_AND_RIGHT = DOWN | LEFT | RIGHT,      // 14
 
-                    ALL_ORTHOGANAL          = UP | DOWN | RIGHT | LEFT, // 15
-                };
+                    {
+                        // grows down / right
+                        Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
+                        draw_lines.up = false;
 
-                bool prev_selected_only_up          =  psis.up && !psis.right && !psis.down && !psis.left;
-                bool prev_selected_only_right       = !psis.up &&  psis.right && !psis.down && !psis.left;
-                bool prev_selected_only_down        = !psis.up && !psis.right &&  psis.down && !psis.left;
-                bool prev_selected_only_left        = !psis.up && !psis.right && !psis.down &&  psis.left;
+                        Rectangle rec = GrowRectangleInDirection(select_bounds, GROW_DOWN, factor/2);
 
-                bool prev_selected_all_othoganal    =  psis.up &&  psis.right &&  psis.down &&  psis.left;
+                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                    }
 
-                if (prev_selected_all_othoganal) {
+
+                } break;
+
+                // case UP   | DOWN:    //  5
+                case LEFT | RIGHT: { // 10
+                    // draw closeing from both sides
+                    draw_selected_bounds_at_the_end = false;
+
+                    {
+                        // grows up   / left
+                        Surrounding_Bools draw_lines_1 = surrounding_bools_all_as(true);
+                        bool *side_to_disable_1 = prev_selected & UP ? &draw_lines_1.down : &draw_lines_1.right;
+
+                        *side_to_disable_1 = false;
+
+
+                        Rectangle rec_1 = select_bounds;
+                        f32 *len_1 = prev_selected & UP ? &rec_1.y      : &rec_1.x;
+                        f32 *dim_1 = prev_selected & UP ? &rec_1.height : &rec_1.width;
+
+                        *len_1 += *dim_1 * (1-factor)/2 + *dim_1/2;
+                        *dim_1 *= factor/2;
+
+                        draw_selected_lines(rec_1, SELECT_LINE_THICKNESS, draw_lines_1, color);
+                    }
+
+
+                    {
+                        // grows down / right
+                        Surrounding_Bools draw_lines_2 = surrounding_bools_all_as(true);
+                        bool *side_to_disable_2 = prev_selected & UP ? &draw_lines_2.up : &draw_lines_2.left;
+
+                        *side_to_disable_2 = false;
+
+                        Rectangle rec_2 = select_bounds;
+                        f32 *dim_2 = prev_selected & UP ? &rec_2.height : &rec_2.width;
+
+                        *dim_2 *= factor/2;
+
+                        draw_selected_lines(rec_2, SELECT_LINE_THICKNESS, draw_lines_2, color);
+                    }
+
+
+
+
+
+
+                    // Surrounding_Bools draw_lines_comming_up = surrounding_bools_all_as(true);
+                    // draw_lines_comming_up.down = false;
+
+                    // Rectangle lower_comming_up = select_bounds;
+                    // lower_comming_up.y += lower_comming_up.height * (1-factor)/2 + lower_comming_up.height/2;
+                    // lower_comming_up.height *= factor/2;
+
+                    // draw_selected_lines(lower_comming_up, SELECT_LINE_THICKNESS, draw_lines_comming_up, color);
+
+
+                    // Surrounding_Bools draw_lines_going_down = surrounding_bools_all_as(true);
+                    // draw_lines_going_down.up = false;
+
+                    // Rectangle upper_going_down = select_bounds;
+                    // upper_going_down.height *= factor/2;
+
+                    // draw_selected_lines(upper_going_down, SELECT_LINE_THICKNESS, draw_lines_going_down, color);
+
+                } break;
+                // case LEFT | RIGHT:             { // 10
+                //     // grow from nothing.
+                //     select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                //     color = Fade(color, factor);
+                // } break;
+
+
+                case UP   | RIGHT:             { //  3
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+                case UP   | LEFT:              { //  9
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+                case DOWN | RIGHT:             { //  6
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+                case DOWN | LEFT:              { // 12
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+
+
+                case UP   | DOWN | RIGHT:      { //  7
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+                case UP   | DOWN | LEFT:       { // 13
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+                case UP   | LEFT | RIGHT:      { // 11
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+                case DOWN | LEFT | RIGHT:      { // 14
+                    // grow from nothing.
+                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                    color = Fade(color, factor);
+                } break;
+
+
+                case UP | DOWN | RIGHT | LEFT: { // 15
                     // draw a shinking Rect that makes it look like the outside is sinking in.
                     Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
                     Rectangle shrinking_rectangle = ShrinkRectanglePercent(select_bounds, 1-factor);
                     draw_selected_lines(shrinking_rectangle, SELECT_LINE_THICKNESS, draw_lines, color);
+                } break;
 
-                } else if (prev_selected_only_up) {
-                    // grow down.
-                    select_bounds.height *= factor;
 
-                } else if (prev_selected_only_right) {
-                    // grow left.
-                    select_bounds.x += select_bounds.width * (1-factor);
-                    select_bounds.width *= factor;
-
-                } else if (prev_selected_only_down) {
-                    // grow up
-                    select_bounds.y += select_bounds.height * (1-factor);
-                    select_bounds.height *= factor;
-
-                } else if (prev_selected_only_left) {
-                    // grow to the right.
-                    select_bounds.width  *= factor;
-
-                } else {
-
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
-                }
+                default: { UNREACHABLE(); } break;
             }
 
-            draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, csis, color);
+            if (draw_selected_bounds_at_the_end) {
+                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, csis, color);
+            }
         }
     }
 
