@@ -72,26 +72,41 @@ Vector2 RectangleCenter(Rectangle rec) {
 
 
 typedef enum {
-    GROW_UP,
-    GROW_DOWN,
-    GROW_LEFT,
-    GROW_RIGHT,
-} Grow_Direction;
+    DIR_UP    = 0,
+    DIR_RIGHT = 1,
+    DIR_DOWN  = 2,
+    DIR_LEFT  = 3,
+} Direction;
 
-internal Rectangle GrowRectangleInDirection(Rectangle rec, Grow_Direction direction, f32 factor) {
+internal Direction Opposite_Direction(Direction dir) {
+    switch (dir) {
+        case DIR_UP:    return DIR_DOWN;
+        case DIR_DOWN:  return DIR_UP;
+        case DIR_LEFT:  return DIR_RIGHT;
+        case DIR_RIGHT: return DIR_LEFT;
+    }
+    UNREACHABLE();
+}
+
+internal Direction Next_Direction_Clockwise(Direction dir)         { return (dir + 1) % 4; }
+// internal Direction Next_Direction_Counter_Clockwise(Direction dir) { return (dir + 3) % 4; }
+
+
+
+internal Rectangle GrowRectangleInDirection(Rectangle rec, Direction direction, f32 factor) {
     switch (direction) {
-        case GROW_UP:    {
+        case DIR_UP:    {
             rec.y += rec.height * (1-factor);
             rec.height *= factor;
         } break;
 
-        case GROW_LEFT:  {
+        case DIR_LEFT:  {
             rec.x += rec.width  * (1-factor);
             rec.width  *= factor;
         } break;
 
-        case GROW_DOWN:  { rec.height *= factor; } break;
-        case GROW_RIGHT: { rec.width  *= factor; } break;
+        case DIR_DOWN:  { rec.height *= factor; } break;
+        case DIR_RIGHT: { rec.width  *= factor; } break;
     }
 
     return rec;

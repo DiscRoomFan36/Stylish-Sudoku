@@ -1260,6 +1260,43 @@ internal Surrounding_Bools surrounding_bools_all_as(bool this) {
     return result;
 }
 
+internal bool *get_surrounding_bool_direction(Surrounding_Bools *bools, Direction dir) {
+    switch (dir) {
+        case DIR_UP:    return &bools->up;
+        case DIR_DOWN:  return &bools->down;
+        case DIR_LEFT:  return &bools->left;
+        case DIR_RIGHT: return &bools->right;
+    }
+    UNREACHABLE();
+}
+
+// // from [0..7]
+// internal s32 get_surrounding_bool_direction_index(Surrounding_Bools bools, Direction dir) {
+//     bool *ptr = get_surrounding_bool_direction(&bools, dir);
+//     s32 index = (s32)(ptr - &bools.up);
+//     ASSERT(Is_Between(index, 0, (s32)Array_Len(bools.as_array)-1));
+//     return index;
+// }
+
+internal bool *get_corner_between(Surrounding_Bools *bools, Direction dir_1, Direction dir_2) {
+    ASSERT(bools);
+    ASSERT(dir_1 != dir_2);
+    ASSERT(Opposite_Direction(dir_1) != dir_2);
+
+    if (dir_1 > dir_2) Swap(dir_1, dir_2);
+
+    if (dir_1 == DIR_UP) {
+        if      (dir_2 == DIR_RIGHT)    return &bools->up_right;
+        else if (dir_2 == DIR_LEFT)     return &bools->up_left;
+    } else if (dir_1 == DIR_RIGHT) {
+        if      (dir_2 == DIR_DOWN)     return &bools->down_right;
+    } else if (dir_1 == DIR_DOWN) {
+        if      (dir_2 == DIR_LEFT)     return &bools->down_left;
+    }
+    UNREACHABLE();
+}
+
+
 internal inline bool Is_Selected(Sudoku_UI_Grid *ui, u8 i, u8 j) {
     ASSERT(ui);
     ASSERT_VALID_SUDOKU_ADDRESS(i, j); // this kinda sucks. but hopefully it'll compile out.
@@ -1519,129 +1556,99 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                     color = Fade(color, factor);
                 } break;
 
-                case UP:    /*  1 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_DOWN,  factor); } break;
-                case LEFT:  /*  8 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_RIGHT, factor); } break;
-                case DOWN:  /*  2 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_UP,    factor); } break;
-                case RIGHT: /*  4 */ { select_bounds = GrowRectangleInDirection(select_bounds, GROW_LEFT,  factor); } break;
+                case UP:    /*  1 */ { select_bounds = GrowRectangleInDirection(select_bounds, DIR_DOWN,  factor); } break;
+                case LEFT:  /*  8 */ { select_bounds = GrowRectangleInDirection(select_bounds, DIR_RIGHT, factor); } break;
+                case DOWN:  /*  2 */ { select_bounds = GrowRectangleInDirection(select_bounds, DIR_UP,    factor); } break;
+                case RIGHT: /*  4 */ { select_bounds = GrowRectangleInDirection(select_bounds, DIR_LEFT,  factor); } break;
 
 
-                case UP   | DOWN:  { // 5
-                    // draw closeing from both sides
-                    draw_selected_bounds_at_the_end = false;
-
-                    {
-                        // grows up
-                        Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
-                        draw_lines.down = false;
-
-                        Rectangle rec = GrowRectangleInDirection(select_bounds, GROW_UP, factor/2);
-
-                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
-                    }
-
-
-                    {
-                        // grows down / right
-                        Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
-                        draw_lines.up = false;
-
-                        Rectangle rec = GrowRectangleInDirection(select_bounds, GROW_DOWN, factor/2);
-
-                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
-                    }
-
-
-                } break;
-
-                // case UP   | DOWN:    //  5
+                case UP   | DOWN:    // 5
                 case LEFT | RIGHT: { // 10
                     // draw closeing from both sides
                     draw_selected_bounds_at_the_end = false;
 
+                    Direction dir     = prev_selected & UP ? DIR_UP : DIR_LEFT;
+                    Direction opp_dir = Opposite_Direction(dir);
+
                     {
-                        // grows up   / left
-                        Surrounding_Bools draw_lines_1 = surrounding_bools_all_as(true);
-                        bool *side_to_disable_1 = prev_selected & UP ? &draw_lines_1.down : &draw_lines_1.right;
+                        // grows up / left
+                        Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
+                        *get_surrounding_bool_direction(&draw_lines, opp_dir) = false;
 
-                        *side_to_disable_1 = false;
+                        Rectangle rec = GrowRectangleInDirection(select_bounds, dir, factor/2);
 
-
-                        Rectangle rec_1 = select_bounds;
-                        f32 *len_1 = prev_selected & UP ? &rec_1.y      : &rec_1.x;
-                        f32 *dim_1 = prev_selected & UP ? &rec_1.height : &rec_1.width;
-
-                        *len_1 += *dim_1 * (1-factor)/2 + *dim_1/2;
-                        *dim_1 *= factor/2;
-
-                        draw_selected_lines(rec_1, SELECT_LINE_THICKNESS, draw_lines_1, color);
+                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
                     }
 
 
                     {
                         // grows down / right
-                        Surrounding_Bools draw_lines_2 = surrounding_bools_all_as(true);
-                        bool *side_to_disable_2 = prev_selected & UP ? &draw_lines_2.up : &draw_lines_2.left;
+                        Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
+                        *get_surrounding_bool_direction(&draw_lines, dir) = false;
 
-                        *side_to_disable_2 = false;
+                        Rectangle rec = GrowRectangleInDirection(select_bounds, opp_dir, factor/2);
 
-                        Rectangle rec_2 = select_bounds;
-                        f32 *dim_2 = prev_selected & UP ? &rec_2.height : &rec_2.width;
+                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                    }
+                } break;
 
-                        *dim_2 *= factor/2;
 
-                        draw_selected_lines(rec_2, SELECT_LINE_THICKNESS, draw_lines_2, color);
+                case UP   | RIGHT:   //  3
+                case DOWN | RIGHT:   //  6
+                case UP   | LEFT:    //  9
+                case DOWN | LEFT:  { // 12
+
+                    // draw two sides comming together
+                    draw_selected_bounds_at_the_end = false;
+
+                    Direction dir;
+                    switch (prev_selected) {
+                        case UP   | RIGHT: { dir = DIR_UP;    } break;
+                        case UP   | LEFT:  { dir = DIR_LEFT;  } break;
+                        case DOWN | RIGHT: { dir = DIR_RIGHT; } break;
+                        case DOWN | LEFT:  { dir = DIR_DOWN;  } break;
+                        default: UNREACHABLE();
+                    }
+
+                    Direction next_dir = Next_Direction_Clockwise(dir);
+
+                    Direction opp_dir      = Opposite_Direction(dir);
+                    Direction opp_next_dir = Opposite_Direction(next_dir);
+
+
+                    Surrounding_Bools draw_lines = surrounding_is_selected_to_draw_lines(csis);
+                    {
+                        Surrounding_Bools draw_lines_extra = surrounding_bools_all_as(false);
+
+                        bool *corner       = get_corner_between(&draw_lines,       dir, next_dir);
+                        bool *corner_extra = get_corner_between(&draw_lines_extra, dir, next_dir);
+
+                        *corner_extra = *corner;
+                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_extra, color);
+
+                        *corner = false;
                     }
 
 
+                    // so the lines cross each other, and look nice.
+                    // also dont want the lines to shrink to zero with 1-factor,
+                    f64 line_thickness_over_width = SELECT_LINE_THICKNESS / (f64)select_bounds.width;
+                    f64 inner_side_factor = Remap(factor, 0, 1, 1 + line_thickness_over_width, line_thickness_over_width);
 
+                    {
+                        Rectangle outer_rec = GrowRectangleInDirection(select_bounds, opp_dir, factor);
+                        Rectangle final_rec = GrowRectangleInDirection(outer_rec, next_dir, inner_side_factor);
 
+                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                    }
 
+                    {
+                        Rectangle outer_rec = GrowRectangleInDirection(select_bounds, opp_next_dir, factor);
+                        Rectangle final_rec = GrowRectangleInDirection(outer_rec, dir, inner_side_factor);
 
-                    // Surrounding_Bools draw_lines_comming_up = surrounding_bools_all_as(true);
-                    // draw_lines_comming_up.down = false;
+                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                    }
 
-                    // Rectangle lower_comming_up = select_bounds;
-                    // lower_comming_up.y += lower_comming_up.height * (1-factor)/2 + lower_comming_up.height/2;
-                    // lower_comming_up.height *= factor/2;
-
-                    // draw_selected_lines(lower_comming_up, SELECT_LINE_THICKNESS, draw_lines_comming_up, color);
-
-
-                    // Surrounding_Bools draw_lines_going_down = surrounding_bools_all_as(true);
-                    // draw_lines_going_down.up = false;
-
-                    // Rectangle upper_going_down = select_bounds;
-                    // upper_going_down.height *= factor/2;
-
-                    // draw_selected_lines(upper_going_down, SELECT_LINE_THICKNESS, draw_lines_going_down, color);
-
-                } break;
-                // case LEFT | RIGHT:             { // 10
-                //     // grow from nothing.
-                //     select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                //     color = Fade(color, factor);
-                // } break;
-
-
-                case UP   | RIGHT:             { //  3
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
-                } break;
-                case UP   | LEFT:              { //  9
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
-                } break;
-                case DOWN | RIGHT:             { //  6
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
-                } break;
-                case DOWN | LEFT:              { // 12
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
                 } break;
 
 

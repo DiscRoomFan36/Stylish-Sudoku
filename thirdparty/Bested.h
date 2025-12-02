@@ -1448,7 +1448,7 @@ String String_Get_Next_Line(String *parseing, u64 *line_num, String_Get_Next_Lin
             String_Advance(parseing, (s64)parseing->length);
         }
 
-        *line_num += 1;
+        if (line_num) *line_num += 1;
 
         if (remove_comments) {
             s64 comment_index = String_Find_Index_Of(next_line, S("//"));
