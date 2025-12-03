@@ -89,7 +89,7 @@ internal Direction Opposite_Direction(Direction dir) {
 }
 
 internal Direction Next_Direction_Clockwise(Direction dir)         { return (dir + 1) % 4; }
-// internal Direction Next_Direction_Counter_Clockwise(Direction dir) { return (dir + 3) % 4; }
+internal Direction Next_Direction_Counter_Clockwise(Direction dir) { return (dir + 3) % 4; }
 
 
 

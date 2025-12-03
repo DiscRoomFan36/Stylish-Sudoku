@@ -1230,6 +1230,27 @@ int main(void) {
 
 
 
+internal Rectangle Rectangle_Shrink_Both_Sides(Rectangle rec, Direction dir, f32 factor) {
+    switch (dir) {
+        case DIR_UP:
+        case DIR_DOWN: {
+            Rectangle final_rec = GrowRectangleInDirection(rec, DIR_UP, factor);
+            final_rec.y -= rec.height/2 - final_rec.height/2;
+            return final_rec;
+        }
+
+        case DIR_LEFT:
+        case DIR_RIGHT: {
+            Rectangle final_rec = GrowRectangleInDirection(rec, DIR_LEFT, factor);
+            final_rec.x -= rec.width/2 - final_rec.width/2;
+            return final_rec;
+        }
+    }
+
+    UNREACHABLE();
+}
+
+
 // this struct is 8 bytes, probably dosnt matter for my perposes to pack these.
 //
 // starts at up and moves clockwise.
@@ -1270,13 +1291,15 @@ internal bool *get_surrounding_bool_direction(Surrounding_Bools *bools, Directio
     UNREACHABLE();
 }
 
-// // from [0..7]
-// internal s32 get_surrounding_bool_direction_index(Surrounding_Bools bools, Direction dir) {
-//     bool *ptr = get_surrounding_bool_direction(&bools, dir);
-//     s32 index = (s32)(ptr - &bools.up);
-//     ASSERT(Is_Between(index, 0, (s32)Array_Len(bools.as_array)-1));
-//     return index;
-// }
+// from [0..7]
+internal s32 get_direction_to_surrounding_bool_index(Direction dir) {
+    Surrounding_Bools bools;
+
+    bool *ptr = get_surrounding_bool_direction(&bools, dir);
+    s32 index = (s32)(ptr - &bools.up);
+    ASSERT(Is_Between(index, 0, (s32)Array_Len(bools.as_array)-1));
+    return index;
+}
 
 internal bool *get_corner_between(Surrounding_Bools *bools, Direction dir_1, Direction dir_2) {
     ASSERT(bools);
@@ -1295,6 +1318,16 @@ internal bool *get_corner_between(Surrounding_Bools *bools, Direction dir_1, Dir
     }
     UNREACHABLE();
 }
+
+internal s32 get_corner_between_index(Direction dir_1, Direction dir_2) {
+    Surrounding_Bools bools;
+
+    bool *corner = get_corner_between(&bools, dir_1, dir_2);
+    s32 index = (s32)(corner - &bools.up);
+    ASSERT(Is_Between(index, 0, (s32)Array_Len(bools.as_array)-1));
+    return index;
+}
+
 
 
 internal inline bool Is_Selected(Sudoku_UI_Grid *ui, u8 i, u8 j) {
@@ -1610,6 +1643,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                         default: UNREACHABLE();
                     }
 
+
                     Direction next_dir = Next_Direction_Clockwise(dir);
 
                     Direction opp_dir      = Opposite_Direction(dir);
@@ -1620,13 +1654,13 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                     {
                         Surrounding_Bools draw_lines_extra = surrounding_bools_all_as(false);
 
-                        bool *corner       = get_corner_between(&draw_lines,       dir, next_dir);
-                        bool *corner_extra = get_corner_between(&draw_lines_extra, dir, next_dir);
+                        s32 index_corner = get_corner_between_index(dir, next_dir);
 
-                        *corner_extra = *corner;
+                        draw_lines_extra.as_array[index_corner] = draw_lines.as_array[index_corner];
+
                         draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_extra, color);
 
-                        *corner = false;
+                        draw_lines.as_array[index_corner] = false;
                     }
 
 
@@ -1652,26 +1686,101 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                 } break;
 
 
-                case UP   | DOWN | RIGHT:      { //  7
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
+                case UP   | DOWN | RIGHT:   //  7
+                case UP   | DOWN | LEFT:    // 13
+                case UP   | LEFT | RIGHT:   // 11
+                case DOWN | LEFT | RIGHT: { // 14
+                    // close in from 3 sides
+                    draw_selected_bounds_at_the_end = false;
+
+                    Direction dir_middle;
+                    switch (prev_selected) {
+                        case UP   | DOWN | RIGHT: { dir_middle = DIR_RIGHT; } break;
+                        case UP   | DOWN | LEFT:  { dir_middle = DIR_LEFT;  } break;
+                        case UP   | LEFT | RIGHT: { dir_middle = DIR_UP;    } break;
+                        case DOWN | LEFT | RIGHT: { dir_middle = DIR_DOWN;  } break;
+                        default: UNREACHABLE();
+                    }
+
+
+                    Direction dir_left   = Next_Direction_Counter_Clockwise(dir_middle);
+                    Direction dir_right  = Next_Direction_Clockwise        (dir_middle);
+                    Direction dir_opp    = Opposite_Direction(dir_middle);
+
+
+                    Surrounding_Bools draw_lines = surrounding_is_selected_to_draw_lines(csis);
+                    {
+                        Surrounding_Bools draw_lines_the_small_corners = surrounding_bools_all_as(false);
+
+                        s32 index_corner_middle_right   = get_corner_between_index(dir_middle, dir_right);
+                        s32 index_corner_middle_left    = get_corner_between_index(dir_middle, dir_left);
+
+                        draw_lines_the_small_corners.as_array[index_corner_middle_right] = draw_lines.as_array[index_corner_middle_right];
+                        draw_lines_the_small_corners.as_array[index_corner_middle_left]  = draw_lines.as_array[index_corner_middle_left];
+
+                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_the_small_corners, color);
+
+                        draw_lines.as_array[index_corner_middle_right] = false;
+                        draw_lines.as_array[index_corner_middle_left]  = false;
+                    }
+
+
+                    // so the corners touch.
+                    f64 line_thickness_over_width = SELECT_LINE_THICKNESS / (f64)select_bounds.width;
+
+                    f64 half_factor = Remap(factor, 0, 1, 0, 0.5 + line_thickness_over_width/2);
+
+                    f64 inner_side_factor = Remap(factor, 0, 1, 1 + line_thickness_over_width, 0.5 + line_thickness_over_width);
+
+                    { // left
+                        Surrounding_Bools this_draw_lines = draw_lines;
+                        *get_surrounding_bool_direction(&this_draw_lines, dir_left) = true;
+                        *get_corner_between(&this_draw_lines, dir_middle, dir_left) = true;
+
+                        Rectangle outer_rec = GrowRectangleInDirection(select_bounds, dir_left,   half_factor);
+                        Rectangle final_rec = GrowRectangleInDirection(outer_rec,     dir_middle, inner_side_factor);
+
+                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, this_draw_lines, color);
+                    }
+
+                    { // right
+                        Surrounding_Bools this_draw_lines = draw_lines;
+                        *get_surrounding_bool_direction(&this_draw_lines, dir_right) = true;
+                        *get_corner_between(&this_draw_lines, dir_middle, dir_right) = true;
+
+                        Rectangle outer_rec = GrowRectangleInDirection(select_bounds, dir_right,  half_factor);
+                        Rectangle final_rec = GrowRectangleInDirection(outer_rec,     dir_middle, inner_side_factor);
+
+                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, this_draw_lines, color);
+                    }
+
+
+                    { // middle
+                        // this is to meet in the middle with the others
+                        Rectangle outer_rec    = GrowRectangleInDirection(select_bounds, dir_opp, factor/2);
+                        // // this is to shrink down to nothing.
+                        Rectangle final_rec = Rectangle_Shrink_Both_Sides(outer_rec, dir_left, 1-factor);
+
+                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                    }
+
+
                 } break;
-                case UP   | DOWN | LEFT:       { // 13
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
-                } break;
-                case UP   | LEFT | RIGHT:      { // 11
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
-                } break;
-                case DOWN | LEFT | RIGHT:      { // 14
-                    // grow from nothing.
-                    select_bounds = ShrinkRectanglePercent(select_bounds, factor);
-                    color = Fade(color, factor);
-                } break;
+                // case UP   | DOWN | LEFT:       { // 13
+                //     // grow from nothing.
+                //     select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                //     color = Fade(color, factor);
+                // } break;
+                // case UP   | LEFT | RIGHT:      { // 11
+                //     // grow from nothing.
+                //     select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                //     color = Fade(color, factor);
+                // } break;
+                // case DOWN | LEFT | RIGHT:      { // 14
+                //     // grow from nothing.
+                //     select_bounds = ShrinkRectanglePercent(select_bounds, factor);
+                //     color = Fade(color, factor);
+                // } break;
 
 
                 case UP | DOWN | RIGHT | LEFT: { // 15
