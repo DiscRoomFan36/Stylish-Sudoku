@@ -509,6 +509,34 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                 case DOWN | LEFT:  { // 12
 
                     // draw two sides comming together
+
+                    // NOTE
+                    //
+                    // this funtion assumes that (for the up right case)
+                    // the up and right edges of the box are not drawn.
+                    //
+                    // but if you just click, (without shift), those lines will be there,
+                    // (in the final product)
+                    //
+                    // however, in the case where its only up and right (and not up-right),
+                    // the loop that dose the animation for de-selection will de-select
+                    // the right and up edge of this animation cell. (makeing it look fine)
+                    //
+                    // however^2, if you select up, right AND up-right, this de-select dose
+                    // not happen, and the animation looks kinda fucked up.
+                    //
+                    // the interplay between de-selection and selection animations,
+                    // are the kind of edge cases programmers have nighmares about.
+                    //
+                    // instead of playing wack-a-mole with these edges,
+                    // the animations will stay messed up, until a later date
+                    // (aka probably never) wherein I replace this entire system
+                    // for something more advanced and complicated,
+                    // but wouldnt have to deal with these bugs by definition.
+                    // (aka the new system would handle it by definition.)
+                    //
+                    // TODO be a better programmer some day
+
                     draw_selected_bounds_at_the_end = false;
 
                     Direction dir;
@@ -535,7 +563,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
                         draw_lines_extra.as_array[index_corner] = draw_lines.as_array[index_corner];
 
-                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_extra, color);
+                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_extra, RED);//color);
 
                         draw_lines.as_array[index_corner] = false;
                     }
@@ -550,7 +578,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                         Rectangle outer_rec = Grow_Rectangle_In_Direction(select_bounds, opp_dir, factor);
                         Rectangle final_rec = Grow_Rectangle_In_Direction(outer_rec, next_dir, inner_side_factor);
 
-                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, GREEN);//color);
                     }
 
                     {

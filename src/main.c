@@ -352,6 +352,10 @@ typedef struct {
         struct {
             bool clicked;
             bool down;
+
+            f64 last_click_time;
+            Vector2 last_click_location;
+            bool double_clicked;
         } left;
     } mouse;
 
@@ -382,6 +386,25 @@ typedef struct {
 
 
 
+
+///////////////////////////////////////////////////////////////////////////
+//                              Sound
+///////////////////////////////////////////////////////////////////////////
+
+// typedef struct {
+//     String sound_name;
+//     Sound raylib_sound;
+// } A_Sound;
+
+
+// internal void   init_sounds(void);
+// internal void uninit_sounds(void);
+
+// internal void play_sound(const char *sound_name);
+
+
+
+
 ///////////////////////////////////////////////////////////////////////////
 //                              Context
 ///////////////////////////////////////////////////////////////////////////
@@ -398,13 +421,13 @@ struct {
 
 
 
+
 internal inline Input *get_input(void) {
     return &context.input;
 }
 
 internal void update_input(void) {
     Input *input = get_input();
-    Mem_Zero(input, sizeof(*input));
 
     input->time.now = GetTime();
     input->time.dt  = GetFrameTime();
@@ -412,6 +435,35 @@ internal void update_input(void) {
     input->mouse.pos                           = GetMousePosition();
     input->mouse.left.clicked                  = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
     input->mouse.left.down                     = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
+    input->mouse.left.double_clicked           = false;
+
+    if (input->mouse.left.clicked) {
+
+        const f64 double_click_time_threshold_in_seconds = 0.500; // 500 ms
+
+        f64 last_click_time         = input->mouse.left.last_click_time;
+        f64 time_diff               = input->time.now - last_click_time;
+
+        bool is_soon_enough = (time_diff <= double_click_time_threshold_in_seconds);
+
+
+        // in pixels because thats what GetMousePosition returns
+        const f32 max_distange_away_from_last_click_in_pixels = 5; // 5 pixels
+
+        Vector2 last_click_location = input->mouse.left.last_click_location;
+        f32 mouse_dist_sqr = Vector2DistanceSqr(last_click_location, input->mouse.pos);
+
+        bool is_close_enough = (mouse_dist_sqr <= (max_distange_away_from_last_click_in_pixels * max_distange_away_from_last_click_in_pixels));
+
+
+        // TODO think about triple clicks?
+        if (is_soon_enough && is_close_enough) {
+            input->mouse.left.double_clicked = true;
+        }
+
+        input->mouse.left.last_click_time = input->time.now;
+        input->mouse.left.last_click_location = input->mouse.pos;
+    }
 
     input->keyboard.shift_down                 = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
     input->keyboard.control_down               = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
@@ -659,6 +711,8 @@ int main(void) {
             ////////////////////////////////////////////////
             Sudoku_UI_Grid previous_ui = sudoku.ui;
 
+            bool clicked_on_box = false;
+            s8 click_i, click_j;
 
             // phase 1
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
@@ -673,7 +727,8 @@ int main(void) {
 
                     if (input->mouse.left.clicked) {
                         if (mouse_is_over) {
-                            cursor_x = i; cursor_y = j; // put cursor wherever mouse is.
+                            clicked_on_box = true;
+                            click_i = i; click_j = j;
 
                             if (input->keyboard.shift_or_control_down) {
                                 // start of deselection drag
@@ -719,6 +774,35 @@ int main(void) {
                 }
             }
             if (debug_draw_smaller_cell_hitbox) EndTextureMode();
+
+
+
+            if (clicked_on_box) {
+                cursor_x = click_i; cursor_y = click_j; // put cursor wherever mouse is.
+
+                if (input->mouse.left.double_clicked) {
+                    // @Hack, this variable will make the cell de-select right away,
+                    // fix it here.
+                    //
+                    // this code is becomeing dangerous.
+                    when_dragging_to_set_selected_to = true;
+
+
+                    Sudoku_Cell cell = get_cell(&sudoku, click_i, click_j);
+
+                    if (*cell.digit != NO_DIGIT_PLACED) {
+                        s8 digit_to_select = *cell.digit;
+                        // select every digit that is this digit
+                        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                                Sudoku_Cell this_cell = get_cell(&sudoku, i, j);
+
+                                if (*this_cell.digit == digit_to_select)    this_cell.ui->is_selected = true;
+                            }
+                        }
+                    }
+                }
+            }
 
 
             // all the selection stuff has now happened. now do some animation stuff.
