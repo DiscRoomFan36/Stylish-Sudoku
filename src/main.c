@@ -791,13 +791,23 @@ int main(void) {
                     Sudoku_Cell cell = get_cell(&sudoku, click_i, click_j);
 
                     if (*cell.digit != NO_DIGIT_PLACED) {
-                        s8 digit_to_select = *cell.digit;
                         // select every digit that is this digit
+                        s8 digit_to_select = *cell.digit;
                         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                                 Sudoku_Cell this_cell = get_cell(&sudoku, i, j);
 
                                 if (*this_cell.digit == digit_to_select)    this_cell.ui->is_selected = true;
+                            }
+                        }
+
+                    } else {
+                        // select every empty cell
+                        // TODO be smarter and think about the marking and colors for this
+                        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                                Sudoku_Cell this_cell = get_cell(&sudoku, i, j);
+                                if (*this_cell.digit == NO_DIGIT_PLACED)    this_cell.ui->is_selected = true;
                             }
                         }
                     }
