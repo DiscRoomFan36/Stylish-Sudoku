@@ -78,7 +78,9 @@ void play_sound(const char *_sound_name) {
         found_sound->raylib_sound = LoadSound(temp_sprintf("assets/sound/"S_Fmt"", S_Arg(sound_name)));
         // LoadSoundAlias() use this to make copies to play at the same time.
 
-        // printf("sound valid: %d\n", IsSoundValid(found_sound->raylib_sound));
+        if (!IsSoundValid(found_sound->raylib_sound)) {
+            log_error("When trying to load sound '"S_Fmt"', sound is not valid", S_Arg(found_sound->name));
+        }
     }
 
     // play the sound
