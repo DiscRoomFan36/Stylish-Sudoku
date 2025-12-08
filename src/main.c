@@ -158,46 +158,77 @@ typedef struct {
 
     // all the memory in this program comes from here.
     Arena_Pool pool;
-
-    Selected_Animation_Array selection_animation_array;
+    // resets every frame.
+    Arena *scratch;
 
     Input input;
 
-    A_Sound_Array global_sound_array;
+    Selected_Animation_Array    selection_animation_array;
+    A_Sound_Array               global_sound_array;
+    Logged_Message_Array        logged_messages_to_display;
 
 } Context;
 
 
-global_variable Context context = {
+global_variable Context context = ZEROED;
 
+internal void   init_context(void);
+internal void uninit_context(void);
+
+//
+// NOTE. The difference between saying 'Scratch_Get()' and 'Pool_Get(&context.pool)'
+//
+// 'Scratch_Get()' implies that you will eventually call 'Scratch_Release()'
+//
+// 'Pool_Get(&context.pool)' says that you indend to hold this Arena for the entire program.
+//
+internal Arena *Scratch_Get(void);
+internal void   Scratch_Release(Arena *scratch);
+
+
+void init_context(void) {
     // sqaure for now, change when adding a control pannel.
-    .window_width  =  9*80,
-    .window_height =  9*80,
+    context.window_width  =  9*80;
+    context.window_height =  9*80;
 
 
-    .debug_draw_smaller_cell_hitbox  = false,
-    .debug_draw_cursor_position      = false,
-    .debug_draw_color_points         = false,
-    .debug_draw_fps                  = true,
+    context.debug_draw_smaller_cell_hitbox  = false;
+    context.debug_draw_cursor_position      = false;
+    context.debug_draw_color_points         = false;
+    context.debug_draw_fps                  = true;
 
 
-    .pool = ZEROED,
+    Mem_Zero_Struct(&context.pool);
+    context.scratch = Pool_Get(&context.pool);
 
-    .selection_animation_array = ZEROED,
+    Mem_Zero_Struct(&context.input);
 
-    .input = ZEROED,
-
-    .global_sound_array = ZEROED,
-};
-
-
-internal Arena *Scratch_Get(void)               { return Pool_Get(&context.pool); }
-internal void   Scratch_Release(Arena *scratch) { Pool_Release(&context.pool, scratch); }
+    Mem_Zero_Struct(&context.selection_animation_array      );
+    Mem_Zero_Struct(&context.global_sound_array             );
+    Mem_Zero_Struct(&context.logged_messages_to_display     );
 
 
+    context.selection_animation_array   .allocator = Pool_Get(&context.pool);
+    context.global_sound_array          .allocator = Pool_Get(&context.pool);
+    context.logged_messages_to_display  .allocator = Pool_Get(&context.pool);
+
+}
+void uninit_context(void) {
+    Pool_Free_Arenas(&context.pool);
+}
+
+
+Arena *Scratch_Get(void)               {
+    return Pool_Get(&context.pool);
+}
+void   Scratch_Release(Arena *scratch) {
+    Pool_Release(&context.pool, scratch);
+}
+
+
+
+// just a helper function. should go in raylib_helpers.c
 internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKeyPressed(key); }
-
-
 
 
 // TODO @Bested.h
@@ -215,12 +246,7 @@ internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKe
 const char *autosave_path = "./build/autosave.sudoku";
 
 int main(void) {
-    Arena *scratch = Pool_Get(&context.pool);
-
-    context.selection_animation_array.allocator = Pool_Get(&context.pool);
-
-
-
+    init_context();
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(context.window_width, context.window_height, "Sudoku");
@@ -253,7 +279,7 @@ int main(void) {
     {
         const char *error = load_sudoku(autosave_path, &sudoku);
         if (error) {
-            fprintf(stderr, "Failed To Load Save '%s': %s\n", autosave_path, error);
+            log_error("Failed To Load Save '%s': %s", autosave_path, error);
             // TODO make a "clear grid" function.
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
@@ -261,7 +287,7 @@ int main(void) {
                 }
             }
         } else {
-            printf("Succsessfully loaded save file '%s'\n", autosave_path);
+            log("Succsessfully loaded save file '%s'", autosave_path);
         }
     }
 
@@ -280,7 +306,7 @@ int main(void) {
         ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
 
 
-        Arena_Clear(scratch);
+        Arena_Clear(context.scratch);
 
         BeginDrawing();
         ClearBackground(BACKGROUND_COLOR);
@@ -609,12 +635,8 @@ int main(void) {
                         if (slot_is_modifiable) {
                             if (remove_number_this_press) {
                                 Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED);
-                                // *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
-                                // cell.marking->digit_placed_in_solve_mode = false;
                             } else {
                                 Place_Digit(&sudoku.grid, i, j, number_pressed, .in_solve_mode = in_solve_mode);
-                                // *cell.digit = number_pressed;  // @Place_Digit
-                                // cell.marking->digit_placed_in_solve_mode = in_solve_mode;
                             }
                         }
                     } break;
@@ -679,8 +701,6 @@ int main(void) {
                     case SUL_DIGIT: {
                         if (slot_is_modifiable) {
                             Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED);
-                            // *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */
-                            // cell.marking->digit_placed_in_solve_mode = false;
                         }
                     } break;
                     case SUL_CERTAIN:   { cell.marking->  certain      = 0; } break;
@@ -713,7 +733,7 @@ int main(void) {
 
                 { // draw color shading / cell background
                     Int_Array color_bits = ZEROED;
-                    color_bits.allocator = scratch;
+                    color_bits.allocator = context.scratch;
 
                     #define MAX_BITS_SET    (sizeof(cell.marking->color_bitfield)*8)
                     static_assert(Array_Len(SUDOKU_COLOR_BITFIELD_COLORS) == MAX_BITS_SET, "no more than 32 colors please.");
@@ -848,8 +868,8 @@ int main(void) {
                     DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
                 } else {
                     // draw uncertain and certain digits
-                    Int_Array uncertain_numbers = { .allocator = scratch };
-                    Int_Array certain_numbers   = { .allocator = scratch };
+                    Int_Array uncertain_numbers = { .allocator = context.scratch };
+                    Int_Array certain_numbers   = { .allocator = context.scratch };
 
                     for (u8 k = 0; k <= 9; k++) {
                         if (cell.marking->uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
@@ -990,6 +1010,11 @@ int main(void) {
         }
 
 
+
+        // draw logged messages.
+        draw_logger_frame(10, 10);
+
+        // draw the debug stuff.
         DrawTextureRightsideUp(debug_texture.texture, 0, 0);
 
         EndDrawing();
@@ -998,7 +1023,7 @@ int main(void) {
 
     bool result = save_sudoku(autosave_path, &sudoku);
     if (!result) {
-        fprintf(stderr, "something went wrong when saveing\n");
+        log_error("something went wrong when saveing");
     }
 
     uninit_sounds();
@@ -1008,8 +1033,7 @@ int main(void) {
 
     CloseWindow();
 
-    // few more of these then we'll make a uninit function.
-    Pool_Free_Arenas(&context.pool);
+    uninit_context();
 
     return result ? 0 : 1;
 }

@@ -618,7 +618,7 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
 
 
     static_assert(CURRENT_SUDOKU_SAVE_VERSION_NUMBER == 2, "to change when new version");
-    printf("Saving sudoku version %d\n", CURRENT_SUDOKU_SAVE_VERSION_NUMBER);
+    log("Saving sudoku version %d", CURRENT_SUDOKU_SAVE_VERSION_NUMBER);
 
     Sudoku_Save_Struct_Version_2 save_struct = ZEROED;
     save_struct.header.magic_number = SUDOKU_MAGIC_NUMBER;
@@ -685,7 +685,7 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
     // Would be kinda awkward, we cant load this...
     u64 size_of_file = String_Builder_Count(&sb);
     if (size_of_file > MAX_TEMP_FILE_SIZE) {
-        fprintf(stderr, "ERROR: file is to big to fit into temperary buffer, is %.2fMB (%lu)\n", (f64)size_of_file / (f64)MEGABYTE, size_of_file);
+        log_error("file is to big to fit into temperary buffer, is %.2fMB (%lu)", (f64)size_of_file / (f64)MEGABYTE, size_of_file);
     }
 
 
