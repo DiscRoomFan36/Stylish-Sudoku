@@ -12,11 +12,10 @@
 #include "raylib_helpers.c"
 
 
-// all the memory in this program comes from here.
-global_variable Arena_Pool pool = ZEROED;
+#include "sudoku_grid.h"
+#include "sound.h"
+#include "input.h"
 
-internal Arena *Scratch_Get(void)               { return Pool_Get(&pool); }
-internal void   Scratch_Release(Arena *scratch) { Pool_Release(&pool, scratch); }
 
 
 
@@ -36,9 +35,14 @@ typedef struct {
 
 
 
-#define SUDOKU_SIZE                         9
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+//                              Defines
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
-#define SUDOKU_MAX_MARKINGS                 (SUDOKU_SIZE + 1) // Account for 0
 
 
 // in pixels, 60 is highly divisible
@@ -50,6 +54,7 @@ typedef struct {
 static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_LINE_THICKNESS, "must be true");
 
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 8)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
+
 
 
 
@@ -122,213 +127,7 @@ const Vector2 MARKING_LOCATIONS[SUDOKU_MAX_MARKINGS] = {
 
 
 
-// TODO put these in the context or something...
 
-// sqaure for now, change when adding a control pannel.
-global_variable s32     window_width  =  9*80;
-global_variable s32     window_height =  9*80;
-
-global_variable bool    debug_draw_smaller_cell_hitbox  = false;
-global_variable bool    debug_draw_cursor_position      = false;
-global_variable bool    debug_draw_color_points         = false;
-global_variable bool    debug_draw_fps                  = true;
-
-
-
-
-
-// TODO @Bested.h
-#define Proper_Mod(x, y) ({ Typeof(y) _y = (y); (((x) % _y) + _y) % _y; })
-
-internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKeyPressed(key); }
-
-
-
-///////////////////////////////////////////////////////////////////////////
-//                          Sudoku Struct & Stuff
-///////////////////////////////////////////////////////////////////////////
-
-
-// NOTE lower = higher priority
-typedef enum {
-    SUL_DIGIT       = 0,
-    SUL_CERTAIN     = 1,
-    SUL_UNCERTAIN   = 2,
-    SUL_COLOR       = 3,
-} Sudoku_UI_Layer;
-
-
-#define NO_DIGIT_PLACED     -1
-
-typedef struct {
-    // NO_DIGIT_PLACED means no digit
-    s8 digits[SUDOKU_SIZE][SUDOKU_SIZE];
-
-    // bitfeilds descripbing witch markings are there.
-    struct Marking {
-        // real digits are Black, players digits are marking color
-        bool digit_placed_in_solve_mode;
-
-        u16 uncertain; // bitfield's
-        u16   certain; // bitfield's
-
-        u32 color_bitfield;
-        // TODO maybe also lines, but they whouldnt be in this struct.
-    } markings[SUDOKU_SIZE][SUDOKU_SIZE];
-
-} Sudoku_Grid;
-
-typedef struct {
-    _Array_Header_;
-    Sudoku_Grid *items;
-} Sudoku_Grid_Array;
-
-
-
-typedef struct {
-    struct Sudoku_UI {
-        bool is_selected;
-        bool is_hovering_over;
-    } grid[SUDOKU_SIZE][SUDOKU_SIZE];
-
-} Sudoku_UI_Grid;
-
-// SOA style, probably a bit overkill.
-typedef struct {
-    Sudoku_Grid grid;
-    Sudoku_UI_Grid ui;
-
-
-    String name;
-    #define SUDOKU_MAX_NAME_LENGTH 128
-    char name_buf[SUDOKU_MAX_NAME_LENGTH+1];
-    u32 name_buf_count;
-
-
-
-    // Undo
-    //
-    // the last item in this buffer is always the current grid.
-    Sudoku_Grid_Array undo_buffer;
-    u32 redo_count; // how many times you can redo.
-} Sudoku;
-
-
-
-typedef struct {
-    s8 *digit;
-    struct Marking *marking;
-} Sudoku_Grid_Cell;
-
-
-typedef struct {
-    s8 *digit;
-    struct Marking   *marking;
-    struct Sudoku_UI *ui;
-} Sudoku_Cell;
-
-
-#define ASSERT_VALID_SUDOKU_ADDRESS(i, j)       ASSERT(Is_Between((i), 0, SUDOKU_SIZE) && Is_Between((j), 0, SUDOKU_SIZE))
-
-
-
-internal inline Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, s8 i, s8 j) {
-    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
-    Sudoku_Grid_Cell result = {
-        .digit      = &grid->digits  [j][i],
-        .marking    = &grid->markings[j][i],
-    };
-    return result;
-}
-
-
-
-internal inline Sudoku_Cell get_cell(Sudoku *sudoku, s8 i, s8 j) {
-    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
-    ASSERT(sudoku);
-
-    Sudoku_Cell result = {
-        .digit          = &sudoku->grid.digits  [j][i],
-        .marking        = &sudoku->grid.markings[j][i],
-        .ui             = &sudoku->ui.grid      [j][i],
-    };
-    return result;
-}
-
-internal inline bool cell_is_selected(Sudoku_UI_Grid *ui, s8 i, s8 j) {
-    ASSERT(ui);
-    ASSERT_VALID_SUDOKU_ADDRESS(i, j); // this kinda sucks. but hopefully it'll compile out.
-    return ui->grid[j][i].is_selected;
-}
-
-
-
-internal inline Rectangle get_cell_bounds(Sudoku *sudoku, s8 i, s8 j) {
-    // while this dosnt nessesarily cause problems, i want this to be
-    // used wherever get_cell is, and them having the same properties is nice
-    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
-
-    (void) sudoku; // maybe this will tell us where we are, someday.
-
-    Vector2 top_left_corner = {
-        (window_width /2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
-        (window_height/2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
-    };
-
-    Rectangle sudoku_cell = {
-        top_left_corner.x + (i*SUDOKU_CELL_SIZE) + ((i/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
-        top_left_corner.y + (j*SUDOKU_CELL_SIZE) + ((j/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
-        SUDOKU_CELL_SIZE,
-        SUDOKU_CELL_SIZE,
-    };
-
-    // // everything is MUCH nicer when this is the case.
-    // sudoku_cell.x = Round(sudoku_cell.x);
-    // sudoku_cell.y = Round(sudoku_cell.y);
-
-    return sudoku_cell;
-}
-
-
-/*
-typedef enum {
-    PDA_PLACE,
-    PDA_REMOVE,
-    PDA_CLEAR,
-} Put_Digit_Action;
-
-internal void put_digit_on_layer(
-    Sudoku_Grid *grid, u8 i, u8 j,
-    Sudoku_UI_Layer layer, Put_Digit_Action action, s8 digit, bool in_solve_mode
-) {
-    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
-    ASSERT(grid);
-
-    Sudoku_Grid_Cell cell = get_grid_cell(grid, i, j);
-
-    switch (layer) {
-    case SUL_DIGIT: {
-        switch (action) {
-        }
-        if (place_digit) {
-            ASSERT(digit != NO_DIGIT_PLACED); // use !place_digit for this
-            *cell.digit = digit;
-        } else {
-            *cell.digit = NO_DIGIT_PLACED;
-        }
-    } break;
-    case SUL_CERTAIN: {
-
-    } break;
-    case SUL_UNCERTAIN: { TODO("SUL_UNCERTAIN");  } break;
-    case SUL_COLOR:     { TODO("SUL_COLOR");  } break;
-    }
-}
-*/
-
-
-
-#include "sudoku_save_and_load.c"
 
 // for 'draw_sudoku_selection()'
 #include "sudoku_draw_selection.c"
@@ -338,151 +137,68 @@ internal void put_digit_on_layer(
 
 
 ///////////////////////////////////////////////////////////////////////////
-//                              Input Struct
-///////////////////////////////////////////////////////////////////////////
-
-typedef struct {
-    struct {
-        f64 now; // in seconds
-        f64 dt;  // in seconds
-    } time;
-
-    struct {
-        Vector2 pos;
-        struct {
-            bool clicked;
-            bool down;
-
-            f64 last_click_time;
-            Vector2 last_click_location;
-            bool double_clicked;
-        } left;
-    } mouse;
-
-
-    struct {
-        bool shift_down;
-        bool control_down;
-        bool delete_pressed;
-
-        struct {
-            bool up_pressed;
-            bool down_pressed;
-            bool left_pressed;
-            bool right_pressed;
-        } direction;
-
-        struct {
-            bool z_pressed;
-            bool x_pressed;
-        } key;
-
-        bool shift_or_control_down;
-        bool any_direction_pressed;
-
-    } keyboard;
-
-} Input;
-
-
-
-
-///////////////////////////////////////////////////////////////////////////
-//                              Sound
-///////////////////////////////////////////////////////////////////////////
-
-// typedef struct {
-//     String sound_name;
-//     Sound raylib_sound;
-// } A_Sound;
-
-
-// internal void   init_sounds(void);
-// internal void uninit_sounds(void);
-
-// internal void play_sound(const char *sound_name);
-
-
-
-
-///////////////////////////////////////////////////////////////////////////
 //                              Context
 ///////////////////////////////////////////////////////////////////////////
 
-struct {
+
+typedef struct {
+
+    s32     window_width;
+    s32     window_height;
+
+
+    bool    debug_draw_smaller_cell_hitbox;
+    bool    debug_draw_cursor_position;
+    bool    debug_draw_color_points;
+    bool    debug_draw_fps;
+
+
+    // all the memory in this program comes from here.
+    Arena_Pool pool;
+
     Selected_Animation_Array selection_animation_array;
 
     Input input;
 
-} context = ZEROED;
+    A_Sound_Array global_sound_array;
+
+} Context;
+
+
+global_variable Context context = {
+
+    // sqaure for now, change when adding a control pannel.
+    .window_width  =  9*80,
+    .window_height =  9*80,
+
+
+    .debug_draw_smaller_cell_hitbox  = false,
+    .debug_draw_cursor_position      = false,
+    .debug_draw_color_points         = false,
+    .debug_draw_fps                  = true,
+
+
+    .pool = ZEROED,
+
+    .selection_animation_array = ZEROED,
+
+    .input = ZEROED,
+
+    .global_sound_array = ZEROED,
+};
+
+
+internal Arena *Scratch_Get(void)               { return Pool_Get(&context.pool); }
+internal void   Scratch_Release(Arena *scratch) { Pool_Release(&context.pool, scratch); }
+
+
+internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKeyPressed(key); }
 
 
 
 
-
-
-
-internal inline Input *get_input(void) {
-    return &context.input;
-}
-
-internal void update_input(void) {
-    Input *input = get_input();
-
-    input->time.now = GetTime();
-    input->time.dt  = GetFrameTime();
-
-    input->mouse.pos                           = GetMousePosition();
-    input->mouse.left.clicked                  = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-    input->mouse.left.down                     = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
-    input->mouse.left.double_clicked           = false;
-
-    if (input->mouse.left.clicked) {
-
-        const f64 double_click_time_threshold_in_seconds = 0.500; // 500 ms
-
-        f64 last_click_time         = input->mouse.left.last_click_time;
-        f64 time_diff               = input->time.now - last_click_time;
-
-        bool is_soon_enough = (time_diff <= double_click_time_threshold_in_seconds);
-
-
-        // in pixels because thats what GetMousePosition returns
-        const f32 max_distange_away_from_last_click_in_pixels = 5; // 5 pixels
-
-        Vector2 last_click_location = input->mouse.left.last_click_location;
-        f32 mouse_dist_sqr = Vector2DistanceSqr(last_click_location, input->mouse.pos);
-
-        bool is_close_enough = (mouse_dist_sqr <= (max_distange_away_from_last_click_in_pixels * max_distange_away_from_last_click_in_pixels));
-
-
-        // TODO think about triple clicks?
-        if (is_soon_enough && is_close_enough) {
-            input->mouse.left.double_clicked = true;
-        }
-
-        input->mouse.left.last_click_time = input->time.now;
-        input->mouse.left.last_click_location = input->mouse.pos;
-    }
-
-    input->keyboard.shift_down                 = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
-    input->keyboard.control_down               = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-    input->keyboard.delete_pressed             = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
-
-    input->keyboard.direction.up_pressed       = IsKeyPressed(KEY_UP)        || IsKeyPressed(KEY_W);
-    input->keyboard.direction.down_pressed     = IsKeyPressed(KEY_DOWN)      || IsKeyPressed(KEY_S);
-    input->keyboard.direction.left_pressed     = IsKeyPressed(KEY_LEFT)      || IsKeyPressed(KEY_A);
-    input->keyboard.direction.right_pressed    = IsKeyPressed(KEY_RIGHT)     || IsKeyPressed(KEY_D);
-
-    input->keyboard.key.z_pressed              = IsKeyPressed(KEY_Z);
-    input->keyboard.key.x_pressed              = IsKeyPressed(KEY_X);
-
-
-    input->keyboard.shift_or_control_down      = input->keyboard.shift_down || input->keyboard.control_down;
-    input->keyboard.any_direction_pressed      = input->keyboard.direction.up_pressed || input->keyboard.direction.down_pressed || input->keyboard.direction.left_pressed || input->keyboard.direction.right_pressed;
-}
-
-
+// TODO @Bested.h
+#define Proper_Mod(x, y) ({ Typeof(y) _y = (y); (((x) % _y) + _y) % _y; })
 
 
 
@@ -496,18 +212,19 @@ internal void update_input(void) {
 const char *autosave_path = "./build/autosave.sudoku";
 
 int main(void) {
-    Arena *scratch = Pool_Get(&pool);
+    Arena *scratch = Pool_Get(&context.pool);
 
-    context.selection_animation_array.allocator = Pool_Get(&pool);
+    context.selection_animation_array.allocator = Pool_Get(&context.pool);
 
 
 
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(window_width, window_height, "Sudoku");
+    InitWindow(context.window_width, context.window_height, "Sudoku");
     SetTargetFPS(60);
 
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
+    init_sounds();
 
     // the perhaps better option would be to make DebugDraw## versions of the draw
     // functions that buffer the commands until later, but that would require
@@ -515,7 +232,7 @@ int main(void) {
     //
     // another option would be to somehow draw rectangles with depth,
     // and make debug stuff the most important.
-    RenderTexture2D debug_texture = LoadRenderTexture(window_width, window_height);
+    RenderTexture2D debug_texture = LoadRenderTexture(context.window_width, context.window_height);
 
 #define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
@@ -526,7 +243,7 @@ int main(void) {
 
     Sudoku sudoku = ZEROED;
     // make sure that load_sudoku_version_1(), respects this alloctor
-    sudoku.undo_buffer.allocator = Pool_Get(&pool);
+    sudoku.undo_buffer.allocator = Pool_Get(&context.pool);
     Array_Reserve(&sudoku.undo_buffer, 512); // just give it some room.
 
 
@@ -566,15 +283,15 @@ int main(void) {
         ClearBackground(BACKGROUND_COLOR);
 
         {
-            s32 prev_window_width   = window_width;
-            s32 prev_window_height  = window_height;
+            s32 prev_window_width   = context.window_width;
+            s32 prev_window_height  = context.window_height;
 
-            window_width    = GetScreenWidth();
-            window_height   = GetScreenHeight();
+            context.window_width    = GetScreenWidth();
+            context.window_height   = GetScreenHeight();
 
-            if (prev_window_width != window_width || prev_window_height != window_height) {
+            if (prev_window_width != context.window_width || prev_window_height != context.window_height) {
                 UnloadRenderTexture(debug_texture);
-                debug_texture = LoadRenderTexture(window_width, window_height);
+                debug_texture = LoadRenderTexture(context.window_width, context.window_height);
             }
         }
 
@@ -592,13 +309,13 @@ int main(void) {
         Input *input = get_input();
 
 
-        toggle_when_pressed(&debug_draw_smaller_cell_hitbox,    KEY_F1);
-        toggle_when_pressed(&debug_draw_cursor_position,        KEY_F2);
-        toggle_when_pressed(&debug_draw_color_points,           KEY_F3);
+        toggle_when_pressed(&context.debug_draw_smaller_cell_hitbox,    KEY_F1);
+        toggle_when_pressed(&context.debug_draw_cursor_position,        KEY_F2);
+        toggle_when_pressed(&context.debug_draw_color_points,           KEY_F3);
 
 
-        toggle_when_pressed(&debug_draw_fps,                    KEY_F4);
-        if (debug_draw_fps) DebugDraw(DrawFPS(10, 10));
+        toggle_when_pressed(&context.debug_draw_fps,                    KEY_F4);
+        if (context.debug_draw_fps) DebugDraw(DrawFPS(10, 10));
 
 
         local_persist bool in_solve_mode = true;
@@ -607,7 +324,7 @@ int main(void) {
 
             const char *text = in_solve_mode ? "SOLVE"              : "BUILD";
             Color text_color = in_solve_mode ? FONT_COLOR_MARKING   : FONT_COLOR;
-            Vector2 text_pos = { window_width/2, 10 + FONT_SIZE/2 };
+            Vector2 text_pos = { context.window_width/2, 10 + FONT_SIZE/2 };
             DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
         }
 
@@ -642,7 +359,7 @@ int main(void) {
                 cursor_y = prev_y;
             }
 
-            if (debug_draw_cursor_position) {
+            if (context.debug_draw_cursor_position) {
                 Rectangle rec = get_cell_bounds(&sudoku, cursor_x, cursor_y);
                 DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
             }
@@ -757,7 +474,7 @@ int main(void) {
 
             // NOTE this begin/end TextureMode stuff is because if it was inside
             // this 9*9 loop, it drags the fps down to 30.
-            if (debug_draw_smaller_cell_hitbox) BeginTextureMode(debug_texture);
+            if (context.debug_draw_smaller_cell_hitbox) BeginTextureMode(debug_texture);
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                     Sudoku_Cell cell        = get_cell(&sudoku, i, j);
@@ -765,7 +482,7 @@ int main(void) {
 
                     // selected stuff, mouse dragging
                     Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
-                    if (debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
+                    if (context.debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
 
                     if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
                         cell.ui->is_selected = when_dragging_to_set_selected_to;
@@ -773,7 +490,7 @@ int main(void) {
                     }
                 }
             }
-            if (debug_draw_smaller_cell_hitbox) EndTextureMode();
+            if (context.debug_draw_smaller_cell_hitbox) EndTextureMode();
 
 
 
@@ -888,11 +605,13 @@ int main(void) {
                     case SUL_DIGIT: {
                         if (slot_is_modifiable) {
                             if (remove_number_this_press) {
-                                *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
-                                cell.marking->digit_placed_in_solve_mode = false;
+                                Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED);
+                                // *cell.digit = NO_DIGIT_PLACED; // @Place_Digit
+                                // cell.marking->digit_placed_in_solve_mode = false;
                             } else {
-                                *cell.digit = number_pressed;  // @Place_Digit
-                                cell.marking->digit_placed_in_solve_mode = in_solve_mode;
+                                Place_Digit(&sudoku.grid, i, j, number_pressed, .in_solve_mode = in_solve_mode);
+                                // *cell.digit = number_pressed;  // @Place_Digit
+                                // cell.marking->digit_placed_in_solve_mode = in_solve_mode;
                             }
                         }
                     } break;
@@ -956,8 +675,9 @@ int main(void) {
                     switch (layer_to_delete) {
                     case SUL_DIGIT: {
                         if (slot_is_modifiable) {
-                            *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */
-                            cell.marking->digit_placed_in_solve_mode = false;
+                            Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED);
+                            // *cell.digit = NO_DIGIT_PLACED; /* @Place_Digit */
+                            // cell.marking->digit_placed_in_solve_mode = false;
                         }
                     } break;
                     case SUL_CERTAIN:   { cell.marking->  certain      = 0; } break;
@@ -1027,7 +747,7 @@ int main(void) {
                         // turning off and on again in such quick succsesstion,
                         //
                         // these gards will help, but if every cell has colors will still slow down.
-                        if (debug_draw_color_points) BeginTextureMode(debug_texture);
+                        if (context.debug_draw_color_points) BeginTextureMode(debug_texture);
                         for (u32 point_index = 0; point_index < points_count; point_index++) {
                             f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
                             f32 percent = (f32)point_index / (f32)points_count;
@@ -1039,12 +759,12 @@ int main(void) {
                             points[point_index].x = sinf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
                             points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
 
-                            if (debug_draw_color_points) {
+                            if (context.debug_draw_color_points) {
                                 Color color = SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[point_index]];
                                 DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
                             }
                         }
-                        if (debug_draw_color_points) EndTextureMode();
+                        if (context.debug_draw_color_points) EndTextureMode();
 
 
                         Vector2 middle = {SUDOKU_CELL_SIZE/2, SUDOKU_CELL_SIZE/2};
@@ -1278,13 +998,15 @@ int main(void) {
         fprintf(stderr, "something went wrong when saveing\n");
     }
 
+    uninit_sounds();
     UnloadRenderTexture(debug_texture);
     UnloadRenderTexture(cell_background_texture);
     UnloadDynamicFonts();
 
     CloseWindow();
 
-    Pool_Free_Arenas(&pool);
+    // few more of these then we'll make a uninit function.
+    Pool_Free_Arenas(&context.pool);
 
     return result ? 0 : 1;
 }
@@ -1292,5 +1014,24 @@ int main(void) {
 
 
 
+
+
+////////////////////////////////////////////
+//             final includes
+////////////////////////////////////////////
+
+
 #define BESTED_IMPLEMENTATION
 #include "Bested.h"
+
+
+
+#define SUDOKU_IMPLEMENTATION
+#include "sudoku_grid.h"
+
+#define SOUND_IMPLEMENTATION
+#include "sound.h"
+
+#define INPUT_IMPLEMENTATION
+#include "input.h"
+
