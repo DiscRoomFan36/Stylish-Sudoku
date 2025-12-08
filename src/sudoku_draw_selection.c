@@ -578,7 +578,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                         Rectangle outer_rec = Grow_Rectangle_In_Direction(select_bounds, opp_dir, factor);
                         Rectangle final_rec = Grow_Rectangle_In_Direction(outer_rec, next_dir, inner_side_factor);
 
-                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, GREEN);//color);
+                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
                     }
 
                     {
