@@ -65,6 +65,15 @@ internal void draw_logger_frame(s32 x, s32 y);
 #ifdef LOGGING_IMPLEMENTATION
 
 
+internal const char *temp_format_message(Logged_Message log) {
+    switch (log.level) {
+    case LOG_LEVEL_NORMAL:
+        return temp_sprintf("SUDOKU LOG: %s", log.message_c_str);
+    case LOG_LEVEL_ERROR:
+        return temp_sprintf("%s:%d: ERROR: %s", log.file, log.line, log.message_c_str);
+    }
+}
+
 internal void print_logged_message(Logged_Message log) {
     FILE *fd_for_fprintf;
     const char *formatted_message;
@@ -72,12 +81,12 @@ internal void print_logged_message(Logged_Message log) {
     switch (log.level) {
         case LOG_LEVEL_NORMAL: {
             fd_for_fprintf = stdout;
-            formatted_message = temp_sprintf("SUDOKU LOG: %s", log.message_c_str);
+            formatted_message = temp_format_message(log);
         } break;
         case LOG_LEVEL_ERROR: {
             fd_for_fprintf = stderr;
             const char *bar = "===================================";
-            formatted_message = temp_sprintf("%s\n%s:%d: ERROR: %s\n%s", bar, log.file, log.line, log.message_c_str, bar);
+            formatted_message = temp_sprintf("%s\n%s\n%s", bar, temp_format_message(log), bar);
         } break;
     }
 
@@ -112,6 +121,149 @@ void log_impl(Log_Level level, const char *message, const char *file, s32 line) 
 
 
 
+typedef struct {
+    _Array_Header_;
+    String *items;
+} String_Array;
+
+
+// uses scratch arena to allocate temp array.
+//
+// no strings are harmed, or null terminated,
+// so do not put the result into strlen(),
+// it will measure the whole of the array.
+internal String_Array string_split_by(String input, const char *split_by) {
+    String needle = S(split_by);
+
+    String_Array result = { .allocator = context.scratch };
+
+    while (true) {
+        s64 index = String_Find_Index_Of(input, needle);
+        if (index == -1) {
+            Array_Append(&result, input);
+            break;
+        }
+
+        String advanced = String_Advanced(input, index + needle.length);
+        input.length = index;
+        Array_Append(&result, input);
+        input = advanced;
+    }
+
+    return result;
+}
+
+
+//
+// String_Array wrap_text_with_font_and_size(String text, Font_And_Size font_and_size, s32 max_width, ...)
+//
+// returns a scratch allocated String_Array
+//
+// the original string is preserved, and used for the new strings,
+// only the array needs to be allocated.
+//
+
+typedef struct {
+    // split word if its to long to fit onto the line by itself
+    //
+    // normal behaviour just lets the line stick out
+    bool split_word_if_cant_fit;
+} wrap_text_with_font_and_size_Opt;
+
+#define wrap_text_with_font_and_size(text, font_and_size, max_width, ...)       \
+    _wrap_text_with_font_and_size(text, font_and_size, max_width, (wrap_text_with_font_and_size_Opt){ __VA_ARGS__ })
+
+internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size font_and_size, s32 max_width, wrap_text_with_font_and_size_Opt opt) {
+    String_Array result = { .allocator = context.scratch };
+
+
+    // we'll do something special with these later.
+    String_Array new_line_seperated_text_array = string_split_by(text, "\n");
+
+// TODO @Bested.h
+#define debug_break()   asm("int3")
+    // debug_break();
+
+    for (u32 k = 0; k < new_line_seperated_text_array.count; k++) {
+        String text_without_new_lines = new_line_seperated_text_array.items[k];
+
+        // get all the individual words,
+        //
+        // if two spaces are right next to each other,
+        // it dose not matter, we will stick them together anyway
+        String_Array words = string_split_by(text_without_new_lines, " ");
+        ASSERT(words.count > 0); // TODO handle empty lines. maybe just skip to the end?
+
+
+        String line_accumulator = ZEROED;
+        for (u32 i = 0; i < words.count; i++) {
+            String word = words.items[i];
+
+            String checking_line_with_added = line_accumulator;
+            if (line_accumulator.data == NULL) {
+                // just set the current_line to the new word
+                checking_line_with_added = word;
+            } else {
+                checking_line_with_added.length += word.length + 1; // add the extra space between.
+            }
+
+
+            const char *checking_c_str = temp_String_To_C_Str(checking_line_with_added);
+            Vector2 text_size = MeasureTextEx(font_and_size.font, checking_c_str, font_and_size.size, 0);
+
+            if (text_size.x > max_width) {
+                // we need to break up the text.
+
+                // check if there is only 1 word in the accumulator
+                if (line_accumulator.data == NULL) {
+                    // one single word has taken the whole line...
+                    if (opt.split_word_if_cant_fit) {
+                        TODO("opt.split_word_if_cant_fit");
+
+                    } else {
+                        // just put the entire word into a single line.
+                        Array_Append(&result, word);
+
+                        // we dont need to clear the accumulator, nothing is in it.
+                        // Mem_Zero(&line_accumulator, sizeof(line_accumulator));
+                        ASSERT((line_accumulator.data == NULL) && (line_accumulator.length == 0));
+
+                        // move on.
+                        continue;
+                    }
+                }
+
+                // the new word tipped us over the edge. reject it.
+                Array_Append(&result, line_accumulator); // put the new line into the result.
+
+                // clear the accumulator
+                Mem_Zero(&line_accumulator, sizeof(line_accumulator));
+
+                // redo the word.
+                //
+                // if the word is by itself to big to fit onto
+                // the line, it will be handled in the next loop.
+
+                i -= 1; // while loops suck. give me a 'do_that_again;' keyword.
+                continue;
+
+            } else {
+                // add to the line and keep going.
+                line_accumulator = checking_line_with_added;
+            }
+        }
+
+
+        // dont do thing if this is the last new_line_seperated_text_array item.
+        if (k != new_line_seperated_text_array.count-1) {
+            Array_Append(&result, S("")); // append the empty string, to indecate a newline.
+        }
+    }
+
+    return result;
+}
+
+
 
 void draw_logger_frame(s32 x, s32 y) {
     (void) (x + y);
@@ -134,8 +286,12 @@ void draw_logger_frame(s32 x, s32 y) {
         }
     }
 
+
     #define LOGGER_FONT_SIZE    FONT_SIZE/2
     #define LOGGER_FONT_COLOR   FONT_COLOR
+
+    #define LOGGER_PERCENT_BEFORE_START_FADE_OUT   90
+    #define LOGGER_BEFORE_START_FADE_OUT           (LOGGER_PERCENT_BEFORE_START_FADE_OUT / 100.0)
 
     Font_And_Size font_and_size = GetFontWithSize(LOGGER_FONT_SIZE);
 
@@ -144,6 +300,8 @@ void draw_logger_frame(s32 x, s32 y) {
     for (u64 i = 0; i < context.logged_messages_to_display.count; i++) {
         Logged_Message log = context.logged_messages_to_display.items[i];
 
+        const char *formatted_message = temp_format_message(log);
+
         Vector2 position = ZEROED;
 
         position.y += yy;
@@ -151,18 +309,54 @@ void draw_logger_frame(s32 x, s32 y) {
         position.x += x;
         position.y += y;
 
-        Color color = LOGGER_FONT_COLOR;
-        #define PERCENT_BEFORE_START_FADE_OUT   90
-        #define BEFORE_START_FADE_OUT           (PERCENT_BEFORE_START_FADE_OUT / 100.0)
-        if (log.t > BEFORE_START_FADE_OUT) {
-            f64 factor = Remap(log.t, BEFORE_START_FADE_OUT, 1, 0, 1);
+        Color text_color = LOGGER_FONT_COLOR;
+        if (log.level == LOG_LEVEL_ERROR) text_color = RED;
+
+        if (log.t > LOGGER_BEFORE_START_FADE_OUT) {
+            f64 factor = Remap(log.t, LOGGER_BEFORE_START_FADE_OUT, 1, 0, 1);
             // slow at the start, then moves fast
-            color = Fade(color, 1-(factor*factor*factor));
+            text_color = Fade(text_color, 1-(factor*factor*factor));
         }
 
-        DrawTextEx(font_and_size.font, log.message_c_str, position, font_and_size.size, 0, color);
+        s32 max_text_width = 200; // TODO
+        String_Array lines = wrap_text_with_font_and_size(S(formatted_message), font_and_size, max_text_width);
 
-        yy += LOGGER_FONT_SIZE + 10; // TODO LOGGER_PADDING
+
+        u32 num_empty_lines = 0;
+        for (u32 i = 0; i < lines.count; i++) {
+            String line = lines.items[i];
+            if (line.length == 0)    num_empty_lines += 1;
+        }
+        if (num_empty_lines > 0) TODO("num_empty_lines > 0");
+
+
+        // TODO padding
+        Rectangle box = {
+            .x = position.x,
+            .y = position.y,
+            .width = max_text_width,
+            .height = lines.count * font_and_size.size,
+        };
+
+        DrawRectangleRec(box, GREEN);
+
+        for (u32 i = 0; i < lines.count; i++) {
+            String line = lines.items[i];
+
+            if (line.length == 0) {
+                TODO("handle empty lines");
+
+            } else {
+                const char *message = temp_String_To_C_Str(line);
+                DrawTextEx(font_and_size.font, message, position, font_and_size.size, 0, text_color);
+                // TODO do this better
+                position.y += font_and_size.size;
+            }
+
+        }
+
+        yy += box.height;
+        yy += 10; // TODO LOGGER_PADDING
     }
 }
 
