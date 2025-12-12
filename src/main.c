@@ -344,7 +344,7 @@ int main(void) {
 
 
         toggle_when_pressed(&context.debug_draw_fps,                    KEY_F4);
-        if (context.debug_draw_fps) DebugDraw(DrawFPS(10, 10));
+        if (context.debug_draw_fps) DebugDraw(DrawFPS(context.window_width - 100, 10));
 
 
         local_persist bool in_solve_mode = true;
@@ -1012,7 +1012,7 @@ int main(void) {
 
 
         // draw logged messages.
-        draw_logger_frame(10, 10);
+        draw_logger_frame(10, 40);
 
         // draw the debug stuff.
         DrawTextureRightsideUp(debug_texture.texture, 0, 0);

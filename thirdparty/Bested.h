@@ -299,15 +299,6 @@ s32   Mem_Cmp (void *ptr1, void *ptr2, u64 count);
 
 
 // ===================================================
-//                Misc Useful functions
-// ===================================================
-
-// only works on unix.
-u64 nanoseconds_since_unspecified_epoch(void);
-
-
-
-// ===================================================
 //                      Arena
 // ===================================================
 
@@ -457,6 +448,7 @@ typedef struct {
     char *data;
     u64 length;
 } String;
+
 
 // Formatting for printf()
 #define S_Fmt    "%.*s"
@@ -839,11 +831,75 @@ void *_Map_Put                          (Map_Header *header, void *kv_array, voi
     } while (0)
 
 
+
 // ===================================================
-//             Some Common Functions
+//                      Misc
 // ===================================================
 
+// this is just useful
+typedef struct {
+    _Array_Header_;
+    String *items;
+} String_Array;
+
+
+
 String Read_Entire_File(Arena *arena, String filename);
+
+// only works on unix.
+u64 nanoseconds_since_unspecified_epoch(void);
+
+bool check_if_file_exists(const char *filepath);
+
+
+
+// ===================================================
+//                 Debug Helpers
+// ===================================================
+
+const char *print_s64   (void *_x);
+const char *print_u64   (void *_x);
+
+const char *print_s32   (void *_x);
+const char *print_u32   (void *_x);
+
+const char *print_s16   (void *_x);
+const char *print_u16   (void *_x);
+
+const char *print_s8    (void *_x);
+const char *print_u8    (void *_x);
+
+const char *print_f32   (void *_x);
+const char *print_f64   (void *_x);
+
+const char *print_bool  (void *_x);
+const char *print_string(void *_x);
+
+// const char *print_s64_array(void *_array);
+// const char *print_string_array(void *_array);
+
+
+
+
+#define generic_to_str(x)                                                       \
+    _Generic(x,                                                                 \
+        s64: print_s64(&x),  u64: print_u64(&x),                                \
+        s32: print_s32(&x),  u32: print_u32(&x),                                \
+        s16: print_s16(&x),  u16: print_u16(&x),                                \
+        s8 : print_s8 (&x),  u8 : print_u8 (&x),                                \
+        f32: print_f32(&x),  f64: print_f64(&x),                                \
+        bool: print_bool(&x),                                                   \
+        String: print_string(&x),                                               \
+        char *: x, /* were just gonna assume this is null terminated... */      \
+        default: "?UNKNOWN_TYPE?"                                               \
+    )
+
+
+#define debug(x)  do { Typeof(x) _x = (x); printf("DEBUG: %s = %s\n", #x, generic_to_str(_x)); } while (0)
+
+#define debug_break() asm("int3")
+
+
 
 
 
@@ -912,43 +968,6 @@ s32 Mem_Cmp (void *ptr1, void *ptr2, u64 count) {
     return memcmp(ptr1, ptr2, count);
 }
 
-
-
-// ===================================================
-//                Misc Useful functions
-// ===================================================
-
-#ifdef _WIN32
-    #error "We dont support windows currently, or at least not this one function. just delete it if you need to use the rest of this library"
-#else
-    #include <unistd.h>
-    #include <time.h>
-#endif
-
-
-u64 nanoseconds_since_unspecified_epoch(void) {
-#ifdef __unix__
-    struct timespec ts;
-
-    #ifndef CLOCK_MONOTONIC
-        #define VSCODE_IS_DUMB
-        #define CLOCK_MONOTONIC 69420
-    #endif
-    // dont worry, this will never trigger.
-    ASSERT(CLOCK_MONOTONIC != 69420);
-
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-
-    return NANOSECONDS_PER_SECOND * ts.tv_sec + ts.tv_nsec;
-#else
-    #error "Sorry, haven't implemented this yet."
-#endif
-}
-
-// https://stackoverflow.com/questions/230062/whats-the-best-way-to-check-if-a-file-exists-in-c
-bool check_if_file_exists(const char *filepath) {
-    return access(filepath, F_OK) == 0;
-}
 
 
 // ===================================================
@@ -1359,9 +1378,13 @@ s64 String_Find_Index_Of(String s, String needle) {
 
     if (needle.length == 1) return String_Find_Index_Of_Char(s, needle.data[0]);
 
+    s64 absolute_index = 0;
+
     while (true) {
         s64 index = String_Find_Index_Of_Char(s, needle.data[0]);
         if (index == -1) return -1;
+
+        absolute_index += index;
 
         // check if not enough room for needle
         if (s.length - index < needle.length) return -1;
@@ -1374,10 +1397,14 @@ s64 String_Find_Index_Of(String s, String needle) {
             }
         }
 
-        if (flag) return index;
+        if (flag) return absolute_index;
+
+        absolute_index += 1;
 
         s.data   += index + 1;
         s.length -= index + 1;
+
+
     }
 
     return -1;
@@ -1987,6 +2014,105 @@ String Read_Entire_File(Arena *arena, String filename) {
 
     return result;
 }
+
+
+
+#ifdef _WIN32
+    #error "We dont support windows currently, or at least not this one function. just delete it if you need to use the rest of this library"
+#else
+    #include <unistd.h>
+    #include <time.h>
+#endif
+
+
+u64 nanoseconds_since_unspecified_epoch(void) {
+#ifdef __unix__
+    struct timespec ts;
+
+    #ifndef CLOCK_MONOTONIC
+        #define VSCODE_IS_DUMB
+        #define CLOCK_MONOTONIC 69420
+    #endif
+    // dont worry, this will never trigger.
+    ASSERT(CLOCK_MONOTONIC != 69420);
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    return NANOSECONDS_PER_SECOND * ts.tv_sec + ts.tv_nsec;
+#else
+    #error "Sorry, haven't implemented this yet."
+#endif
+}
+
+
+// https://stackoverflow.com/questions/230062/whats-the-best-way-to-check-if-a-file-exists-in-c
+bool check_if_file_exists(const char *filepath) {
+    return access(filepath, F_OK) == 0;
+}
+
+
+
+// ===================================================
+//                 Debug Helpers
+// ===================================================
+
+const char *print_s64   (void *_x) { s64 x    = *(s64*)   _x; return temp_sprintf("%ld", x); }
+const char *print_u64   (void *_x) { u64 x    = *(u64*)   _x; return temp_sprintf("%ld", x); }
+
+const char *print_s32   (void *_x) { s32 x    = *(s32*)   _x; return temp_sprintf("%d",  x); }
+const char *print_u32   (void *_x) { u32 x    = *(u32*)   _x; return temp_sprintf("%d",  x); }
+
+const char *print_s16   (void *_x) { s16 x    = *(s16*)   _x; return temp_sprintf("%d",  x); }
+const char *print_u16   (void *_x) { u16 x    = *(u16*)   _x; return temp_sprintf("%d",  x); }
+
+const char *print_s8    (void *_x) { s8  x    = *(s8 *)   _x; return temp_sprintf("%d",  x); }
+const char *print_u8    (void *_x) { u8  x    = *(u8 *)   _x; return temp_sprintf("%d",  x); }
+
+const char *print_f32   (void *_x) { f32 x    = *(f32*)   _x; return temp_sprintf("%f",  x); }
+const char *print_f64   (void *_x) { f64 x    = *(f64*)   _x; return temp_sprintf("%f",  x); }
+
+
+const char *print_bool  (void *_x) { bool x   = *(bool*)  _x; return x ? "true" : "false"; }
+
+const char *print_string(void *_x) { String x = *(String*)_x; return temp_sprintf("\""S_Fmt"\"", S_Arg(x)); }
+
+
+// const char *print_s64_array(void *_array) {
+//     String_Builder sb = ZEROED;
+
+//     s64_Array array = *(s64_Array*)_array;
+//     String_Builder_printf("{\n    ");
+//     for (u64 i = 0; i < array.count; i++) {
+//         if (i != 0 && i % 10 == 0) String_Builder_printf("\n    ");
+//         String_Builder_printf("%6ld, ", array.items[i]);
+//     }
+//     String_Builder_printf("\n}");
+
+
+//     const char *result = String_Builder_To_String(&sb);
+//     SB_Free(&sb);
+//     return result;
+// }
+
+// const char *print_string_array(void *_array) {
+//     String_Array array = *(String_Array*)_array;
+
+//     String_Builder sb = ZEROED;
+
+//     String_Builder_printf(&sb, "{\n    ");
+//     for (u64 i = 0; i < array.count; i++) {
+//         String_Builder_printf(&sb, "    ");
+//         String_Builder_printf(&sb, "%s,\n", print_string(&array.items[i]));
+//     }
+//     String_Builder_printf(&sb, "}");
+
+//     // this is malloc'd, TODO think about
+//     String result = String_Builder_To_String(&sb);
+//     SB_Free(&sb);
+//     return result.data;
+
+// }
+
 
 
 

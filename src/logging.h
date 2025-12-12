@@ -3,6 +3,7 @@
 #define LOGGING_H_
 
 
+
 typedef enum {
     LOG_LEVEL_NORMAL,
     LOG_LEVEL_ERROR,
@@ -121,12 +122,6 @@ void log_impl(Log_Level level, const char *message, const char *file, s32 line) 
 
 
 
-typedef struct {
-    _Array_Header_;
-    String *items;
-} String_Array;
-
-
 // uses scratch arena to allocate temp array.
 //
 // no strings are harmed, or null terminated,
@@ -152,6 +147,11 @@ internal String_Array string_split_by(String input, const char *split_by) {
 
     return result;
 }
+
+
+
+
+
 
 
 //
@@ -180,10 +180,6 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
     // we'll do something special with these later.
     String_Array new_line_seperated_text_array = string_split_by(text, "\n");
 
-// TODO @Bested.h
-#define debug_break()   asm("int3")
-    // debug_break();
-
     for (u32 k = 0; k < new_line_seperated_text_array.count; k++) {
         String text_without_new_lines = new_line_seperated_text_array.items[k];
 
@@ -194,6 +190,7 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
         String_Array words = string_split_by(text_without_new_lines, " ");
         ASSERT(words.count > 0); // TODO handle empty lines. maybe just skip to the end?
 
+        // if (IsKeyPressed(KEY_A)) debug_break();
 
         String line_accumulator = ZEROED;
         for (u32 i = 0; i < words.count; i++) {
@@ -253,6 +250,11 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
             }
         }
 
+        // add whats left in the accumulator
+        if (line_accumulator.data != NULL) {
+            Array_Append(&result, line_accumulator);
+        }
+
 
         // dont do thing if this is the last new_line_seperated_text_array item.
         if (k != new_line_seperated_text_array.count-1) {
@@ -266,9 +268,6 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
 
 
 void draw_logger_frame(s32 x, s32 y) {
-    (void) (x + y);
-    // TODO("draw_logger_frame");
-
     const f64 time_until_message_fades_away_in_seconds = 5;
 
     f64 dt = get_input()->time.dt / time_until_message_fades_away_in_seconds;
@@ -287,7 +286,7 @@ void draw_logger_frame(s32 x, s32 y) {
     }
 
 
-    #define LOGGER_FONT_SIZE    FONT_SIZE/2
+    #define LOGGER_FONT_SIZE    FONT_SIZE/3
     #define LOGGER_FONT_COLOR   FONT_COLOR
 
     #define LOGGER_PERCENT_BEFORE_START_FADE_OUT   90
@@ -318,9 +317,8 @@ void draw_logger_frame(s32 x, s32 y) {
             text_color = Fade(text_color, 1-(factor*factor*factor));
         }
 
-        s32 max_text_width = 200; // TODO
+        s32 max_text_width = 400; // TODO
         String_Array lines = wrap_text_with_font_and_size(S(formatted_message), font_and_size, max_text_width);
-
 
         u32 num_empty_lines = 0;
         for (u32 i = 0; i < lines.count; i++) {
