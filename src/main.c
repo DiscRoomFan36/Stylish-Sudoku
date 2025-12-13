@@ -17,6 +17,9 @@
 #include "input.h"
 #include "logging.h"
 
+// for 'draw_sudoku_selection()'
+#include "sudoku_draw_selection.h"
+
 
 
 
@@ -31,6 +34,13 @@ typedef struct {
 } Vector2_Array;
 
 
+
+#define rgba(_r, _g, _b, _a) ( (Color){.r = (_r), .g = (_g), .b = (_b), .a = (_a*255) + 0.5} )
+// Color rgba(u8 r, u8 g, u8 b, f32 a) {
+//     s32 alpha = (Clamp(a, 0, 1) * 255) + 0.5;
+//     return (Color){ .r = r, .g = g, .b = b, .a = alpha };
+// }
+#define rgb(r, g, b) rgba((r), (g), (b), 1)
 
 
 
@@ -54,40 +64,44 @@ static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 8)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 
 
+// could also be known as theme.
+typedef struct {
+    Color background;
 
+    // things relating to the sudoku. withc is most things.
+    struct {
+        Color cell_background;
+        Color cell_lines;
+        Color box_lines;
+    
+        Color cell_digits_color;
+        Color cell_font_color_for_marking;
+        
+        // turn "nth bit set" into a color
+        Color cell_color_bitfield[32];
+    } sudoku;
+    
+    Color select_highlight;
 
-#define BACKGROUND_COLOR                    WHITE   // @Color
-#define SUDOKU_CELL_BACKGROUND_COLOR        WHITE   // @Color
-#define SUDOKU_CELL_LINE_COLOR              GRAY    // @Color
-#define SUDOKU_BOX_LINE_COLOR               BLACK   // @Color
+    struct {
+        Color text_color;
+        Color error_text_color;
 
+        Color box_background;
+        Color box_frame_color;
+    } logger;
 
-// TODO @Color
-//
-// turn "nth bit set" into a color
-const Color SUDOKU_COLOR_BITFIELD_COLORS[32] = {
-    /*  0         */ SUDOKU_CELL_BACKGROUND_COLOR,
-    /*  1,  2,  3 */ YELLOW,        BLUE,       GREEN,
-    /*  4,  5,  6 */ GRAY,          ORANGE,     PURPLE,
-    /*  7,  8,  9 */ DARKGRAY,      BROWN,      MAROON,
-};
-
-
+} Theme;
 
 
 
 #define SELECT_LINE_THICKNESS               (SUDOKU_CELL_SIZE / 12)
-#define SELECT_HIGHLIGHT_COLOR              BLUE    // @Color
 
 
 #define FONT_SIZE                           (SUDOKU_CELL_SIZE / 1)
-#define FONT_COLOR                          BLACK   // @Color
-
 
 
 // TODO maybe the markings use a different font? maybe the bold version.
-
-#define FONT_COLOR_MARKING                  BLUE    // @Color
 
 #define FONT_SIZE_UNCERTAIN                 (FONT_SIZE / 3)
 
@@ -125,18 +139,6 @@ const Vector2 MARKING_LOCATIONS[SUDOKU_MAX_MARKINGS] = {
 
 
 
-
-// TODO make this a .h or something.
-//
-// NOTE must be included before the context.
-//
-// for 'draw_sudoku_selection()'
-#include "sudoku_draw_selection.c"
-
-
-
-
-
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 //                              Context
@@ -167,6 +169,9 @@ typedef struct {
     A_Sound_Array               global_sound_array;
     Logged_Message_Array        logged_messages_to_display;
 
+
+    Theme theme;
+
 } Context;
 
 
@@ -195,7 +200,7 @@ void init_context(void) {
     context.debug_draw_smaller_cell_hitbox  = false;
     context.debug_draw_cursor_position      = false;
     context.debug_draw_color_points         = false;
-    context.debug_draw_fps                  = true;
+    context.debug_draw_fps                  = false;
 
 
     Mem_Zero_Struct(&context.pool);
@@ -211,6 +216,42 @@ void init_context(void) {
     context.selection_animation_array   .allocator = Pool_Get(&context.pool);
     context.global_sound_array          .allocator = Pool_Get(&context.pool);
     context.logged_messages_to_display  .allocator = Pool_Get(&context.pool);
+
+
+    context.theme = (Theme){
+        .background = rgb(245, 200, 87),
+
+        .sudoku = {
+            .cell_background    = rgb(255, 238, 145),
+            .cell_lines         = rgb(226, 133, 46),
+            .box_lines          = rgb(226, 133, 46),
+
+            // TODO this is the color of the digits that was placed in builder mode.
+            .cell_digits_color              = BLACK,   // @Color
+            .cell_font_color_for_marking    = BLUE,    // @Color
+
+            // @Color
+            .cell_color_bitfield = {
+/*  0         */ context.theme.sudoku.cell_background,
+/*  1,  2,  3 */ rgba(235, 229, 68, 1),        BLUE,       GREEN,
+/*  4,  5,  6 */ GRAY,          ORANGE,     PURPLE,
+/*  7,  8,  9 */ DARKGRAY,      BROWN,      MAROON,
+            },
+        },
+
+        .select_highlight = rgb(171, 224, 240),
+
+        .logger = {
+            .text_color         = BLACK, // @Color
+            .error_text_color   = RED,   // @Color
+
+            .box_background     = WHITE, // @Color
+            .box_frame_color    = BLACK, // @Color
+        },
+    };
+
+    // i dont think it works the way i have it above.
+    context.theme.sudoku.cell_color_bitfield[0] = context.theme.sudoku.cell_background;
 
 }
 void uninit_context(void) {
@@ -311,7 +352,7 @@ int main(void) {
         Arena_Clear(context.scratch);
 
         BeginDrawing();
-        ClearBackground(BACKGROUND_COLOR);
+        ClearBackground(context.theme.background);
 
         {
             s32 prev_window_width   = context.window_width;
@@ -354,7 +395,7 @@ int main(void) {
             toggle_when_pressed(&in_solve_mode, KEY_B);
 
             const char *text = in_solve_mode ? "SOLVE"              : "BUILD";
-            Color text_color = in_solve_mode ? FONT_COLOR_MARKING   : FONT_COLOR;
+            Color text_color = in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digits_color;
             Vector2 text_pos = { context.window_width/2, 10 + FONT_SIZE/2 };
             DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
         }
@@ -738,7 +779,7 @@ int main(void) {
                     color_bits.allocator = context.scratch;
 
                     #define MAX_BITS_SET    (sizeof(*cell.color_bitfield)*8)
-                    static_assert(Array_Len(SUDOKU_COLOR_BITFIELD_COLORS) == MAX_BITS_SET, "no more than 32 colors please.");
+                    static_assert(Array_Len(context.theme.sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
 
                     // loop over all bits, and get the index's of the colors.
                     for (u32 k = 0; k < MAX_BITS_SET; k++) {
@@ -747,10 +788,10 @@ int main(void) {
 
 
                     if (color_bits.count == 0) {
-                        DrawRectangleRec(cell_bounds, SUDOKU_CELL_BACKGROUND_COLOR);
+                        DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_background);
                     } else if (color_bits.count == 1) {
                         // a very obvious special case. only one color
-                        DrawRectangleRec(cell_bounds, SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[0]]);
+                        DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_color_bitfield[color_bits.items[0]]);
                     } else {
 
                         //
@@ -785,7 +826,7 @@ int main(void) {
                             points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
 
                             if (context.debug_draw_color_points) {
-                                Color color = SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[point_index]];
+                                Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
                                 DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
                             }
                         }
@@ -836,7 +877,7 @@ int main(void) {
                             ASSERT(seen_start && seen_end);
                             ASSERT(fan_points_count <= 5);
 
-                            Color color = SUDOKU_COLOR_BITFIELD_COLORS[color_bits.items[point_index]];
+                            Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
                             for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
                                 fan_points[fan_index].x += cell_bounds.x;
                                 fan_points[fan_index].y += cell_bounds.y;
@@ -852,7 +893,7 @@ int main(void) {
 
                 { // draw cell surrounding frame
                     Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
-                    DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, SUDOKU_CELL_LINE_COLOR);
+                    DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, context.theme.sudoku.cell_lines);
                 }
 
 
@@ -865,7 +906,7 @@ int main(void) {
                     const char *text = TextFormat("%d", *cell.digit);
 
                     Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                    Color text_color = *cell.digit_placed_in_solve_mode ? FONT_COLOR_MARKING : FONT_COLOR;
+                    Color text_color = *cell.digit_placed_in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digits_color;
 
                     DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
                 } else {
@@ -889,7 +930,7 @@ int main(void) {
 
                             Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
                             text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
-                            DrawTextCentered(font_and_size, text, text_pos, FONT_COLOR_MARKING);
+                            DrawTextCentered(font_and_size, text, text_pos, context.theme.sudoku.cell_font_color_for_marking);
                         }
                     }
 
@@ -911,7 +952,7 @@ int main(void) {
                         }
 
                         Vector2 text_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                        DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, FONT_COLOR_MARKING);
+                        DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, context.theme.sudoku.cell_font_color_for_marking);
                     }
                 }
 
@@ -987,7 +1028,7 @@ int main(void) {
                     DrawRectangleFrameRec(
                         GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2),
                         SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                        SUDOKU_BOX_LINE_COLOR
+                        context.theme.sudoku.box_lines
                     );
                 }
             }
@@ -1006,7 +1047,7 @@ int main(void) {
                 DrawRectangleFrameRec(
                     GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS),
                     SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                    SUDOKU_BOX_LINE_COLOR
+                    context.theme.sudoku.box_lines
                 );
             }
         }
@@ -1066,3 +1107,8 @@ int main(void) {
 
 #define LOGGING_IMPLEMENTATION
 #include "logging.h"
+
+
+#define SUDOKU_DRAW_SELECTION_IMPLEMENTATION
+#include "sudoku_draw_selection.h"
+

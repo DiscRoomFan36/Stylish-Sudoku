@@ -1,4 +1,7 @@
-#pragma once
+
+#ifndef SUDOKU_DRAW_SELECTION_H_
+#define SUDOKU_DRAW_SELECTION_H_
+
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -10,10 +13,10 @@ typedef struct {
     // how far along in the animation it is.
     // [0..1]
     f64 t_animation;
-
+    
     Sudoku_UI_Grid prev_ui_state;
     Sudoku_UI_Grid curr_ui_state;
-
+    
 } Selected_Animation;
 
 typedef struct {
@@ -27,7 +30,17 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation);
 
 
 
+#endif // SUDOKU_DRAW_SELECTION_H_
 
+
+
+
+
+
+
+
+
+#ifdef SUDOKU_DRAW_SELECTION_IMPLEMENTATION
 
 
 
@@ -311,7 +324,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                 Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
                 Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-                Color color = SELECT_HIGHLIGHT_COLOR;
+                Color color = context.theme.select_highlight;
 
                 draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines, color);
             }
@@ -356,7 +369,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                 Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
                 Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-                Color color = SELECT_HIGHLIGHT_COLOR;
+                Color color = context.theme.select_highlight;
 
                 bool prev_no_surrunding_selected = !psis.up && !psis.right && !psis.down && !psis.left;
                 bool curr_no_surrunding_selected = !csis.up && !csis.right && !csis.down && !csis.left;
@@ -427,7 +440,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
             Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
             Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-            Color color = SELECT_HIGHLIGHT_COLOR;
+            Color color = context.theme.select_highlight;
 
             // if it was the same as last time, just render them normally.
             if (cell_is_selected(prev_ui, i, j)) {
@@ -692,4 +705,9 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
 
 }
+
+
+
+
+#endif // SUDOKU_DRAW_SELECTION_IMPLEMENTATION
 

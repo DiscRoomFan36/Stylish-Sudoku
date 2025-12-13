@@ -286,8 +286,7 @@ void draw_logger_frame(s32 x, s32 y) {
     }
 
 
-    #define LOGGER_FONT_SIZE    FONT_SIZE/3
-    #define LOGGER_FONT_COLOR   FONT_COLOR
+    #define LOGGER_FONT_SIZE    (FONT_SIZE/3)
 
     #define LOGGER_PERCENT_BEFORE_START_FADE_OUT   90
     #define LOGGER_BEFORE_START_FADE_OUT           (LOGGER_PERCENT_BEFORE_START_FADE_OUT / 100.0)
@@ -308,8 +307,8 @@ void draw_logger_frame(s32 x, s32 y) {
         position.x += x;
         position.y += y;
 
-        Color text_color = LOGGER_FONT_COLOR;
-        if (log.level == LOG_LEVEL_ERROR) text_color = RED;
+        Color text_color = context.theme.logger.text_color;
+        if (log.level == LOG_LEVEL_ERROR) text_color = context.theme.logger.error_text_color;
 
         if (log.t > LOGGER_BEFORE_START_FADE_OUT) {
             f64 factor = Remap(log.t, LOGGER_BEFORE_START_FADE_OUT, 1, 0, 1);
@@ -329,14 +328,19 @@ void draw_logger_frame(s32 x, s32 y) {
 
 
         // TODO padding
+        const f32 padding = 10;
         Rectangle box = {
             .x = position.x,
             .y = position.y,
-            .width = max_text_width,
-            .height = lines.count * font_and_size.size,
+            .width = max_text_width + padding*2,
+            .height = lines.count * font_and_size.size + padding*2,
         };
 
-        DrawRectangleRec(box, GREEN);
+        position.x += padding;
+        position.y += padding;
+
+        DrawRectangleRec(box, context.theme.logger.box_background);
+        DrawRectangleFrameRec(box, padding/2, context.theme.logger.box_frame_color);
 
         for (u32 i = 0; i < lines.count; i++) {
             String line = lines.items[i];
@@ -345,16 +349,18 @@ void draw_logger_frame(s32 x, s32 y) {
                 TODO("handle empty lines");
 
             } else {
+                // not cool, but what can we really do?
                 const char *message = temp_String_To_C_Str(line);
                 DrawTextEx(font_and_size.font, message, position, font_and_size.size, 0, text_color);
                 // TODO do this better
                 position.y += font_and_size.size;
+                yy += font_and_size.size;
             }
 
         }
 
-        yy += box.height;
-        yy += 10; // TODO LOGGER_PADDING
+        // yy += box.height;
+        yy += padding * 2 + 10; // TODO LOGGER_PADDING
     }
 }
 
