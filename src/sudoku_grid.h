@@ -103,13 +103,34 @@ typedef struct {
 
 typedef struct {
     s8 *digit;
-    struct Marking *marking;
+
+
+    // struct Marking *marking;
+    bool *digit_placed_in_solve_mode;
+
+    u16 *uncertain; // bitfield's
+    u16 *  certain; // bitfield's
+
+    u32 *color_bitfield;
+
 } Sudoku_Grid_Cell;
 
 
 typedef struct {
     s8 *digit;
-    struct Marking   *marking;
+
+    // struct Marking   *marking;
+    bool *digit_placed_in_solve_mode;
+
+    u16 *uncertain; // bitfield's
+    u16 *  certain; // bitfield's
+
+    u32 *color_bitfield;
+
+    // im trying out not depending on the structures in sudoku.
+    // but it mught just make it harder to work with.
+    //
+    // having to (*) every time i want to accsess something is annoying...
     struct Sudoku_UI *ui;
 } Sudoku_Cell;
 
@@ -196,8 +217,13 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save);
 Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, s8 i, s8 j) {
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
     Sudoku_Grid_Cell result = {
-        .digit      = &grid->digits  [j][i],
-        .marking    = &grid->markings[j][i],
+        .digit                          = &grid->digits  [j][i],
+
+        // .marking    = &grid->markings[j][i],
+        .digit_placed_in_solve_mode     = &grid->markings[j][i].digit_placed_in_solve_mode,
+        .uncertain                      = &grid->markings[j][i].uncertain,
+        .  certain                      = &grid->markings[j][i].certain,
+        .color_bitfield                 = &grid->markings[j][i].color_bitfield,
     };
     return result;
 }
@@ -208,8 +234,14 @@ Sudoku_Cell get_cell(Sudoku *sudoku, s8 i, s8 j) {
     ASSERT(sudoku);
 
     Sudoku_Cell result = {
-        .digit          = &sudoku->grid.digits  [j][i],
-        .marking        = &sudoku->grid.markings[j][i],
+        .digit                          = &sudoku->grid.digits  [j][i],
+
+        // .marking        = &sudoku->grid.markings[j][i],
+        .digit_placed_in_solve_mode     = &sudoku->grid.markings[j][i].digit_placed_in_solve_mode,
+        .uncertain                      = &sudoku->grid.markings[j][i].uncertain,
+        .  certain                      = &sudoku->grid.markings[j][i].certain,
+        .color_bitfield                 = &sudoku->grid.markings[j][i].color_bitfield,
+
         .ui             = &sudoku->ui.grid      [j][i],
     };
     return result;
@@ -281,9 +313,9 @@ void _Place_Digit(Sudoku_Grid *grid, s8 i, s8 j, s8 digit_to_place, Place_Digit_
 
     if (digit_to_place == NO_DIGIT_PLACED) {
         ASSERT(opt.in_solve_mode == false);
-        cell.marking->digit_placed_in_solve_mode = false;
+        *cell.digit_placed_in_solve_mode = false;
     } else {
-        cell.marking->digit_placed_in_solve_mode = opt.in_solve_mode;
+        *cell.digit_placed_in_solve_mode = opt.in_solve_mode;
     }
 }
 
@@ -428,12 +460,14 @@ internal const char *load_sudoku_version_1(String file, Sudoku *result) {
             for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
                 Sudoku_Cell cell = get_cell(result, i, j);
 
+                // need to think about appropreate times to use this function, aka will this function have more side effects?
+                // Place_Digit(&result->grid, i, j, save_struct->digits_on_the_grid[j][i], .dont_play_sound = true);
                 *cell.digit = save_struct->digits_on_the_grid[j][i];
 
-                cell.marking->digit_placed_in_solve_mode = false;
-                cell.marking->uncertain = save_struct->digit_markings_on_the_grid[j][i].uncertain;
-                cell.marking->  certain = save_struct->digit_markings_on_the_grid[j][i].  certain;
-                cell.marking->color_bitfield = 0;
+                *cell.digit_placed_in_solve_mode = false;
+                *cell.uncertain = save_struct->digit_markings_on_the_grid[j][i].uncertain;
+                *cell.  certain = save_struct->digit_markings_on_the_grid[j][i].  certain;
+                *cell.color_bitfield = 0;
 
                 // clear these also.
                 cell.ui->is_selected = false;
@@ -532,11 +566,11 @@ internal const char *load_sudoku_version_2(String file, Sudoku *result) {
             for (u32 i = 0; i < SUDOKU_SIZE_VERSION_2; i++) {
                 Sudoku_Cell cell = get_cell(result, i, j);
 
-                *cell.digit                                 = save_struct->grid.cells[j][i].digit;
-                cell.marking->digit_placed_in_solve_mode    = save_struct->grid.cells[j][i].placed_in_solve_mode;
-                cell.marking->uncertain                     = save_struct->grid.cells[j][i].uncertain;
-                cell.marking->  certain                     = save_struct->grid.cells[j][i].  certain;
-                cell.marking->color_bitfield                = save_struct->grid.cells[j][i].color_bitfield;
+                *cell.digit                         = save_struct->grid.cells[j][i].digit;
+                *cell.digit_placed_in_solve_mode    = save_struct->grid.cells[j][i].placed_in_solve_mode;
+                *cell.uncertain                     = save_struct->grid.cells[j][i].uncertain;
+                *cell.  certain                     = save_struct->grid.cells[j][i].  certain;
+                *cell.color_bitfield                = save_struct->grid.cells[j][i].color_bitfield;
             }
         }
 
@@ -559,11 +593,11 @@ internal const char *load_sudoku_version_2(String file, Sudoku *result) {
                 for (u32 i = 0; i < SUDOKU_SIZE_VERSION_2; i++) {
                     Sudoku_Grid_Cell cell = get_grid_cell(&grid, i, j);
 
-                    *cell.digit                                 = undo_grid->cells[j][i].digit;
-                    cell.marking->digit_placed_in_solve_mode    = undo_grid->cells[j][i].placed_in_solve_mode;
-                    cell.marking->uncertain                     = undo_grid->cells[j][i].uncertain;
-                    cell.marking->  certain                     = undo_grid->cells[j][i].  certain;
-                    cell.marking->color_bitfield                = undo_grid->cells[j][i].color_bitfield;
+                    *cell.digit                         = undo_grid->cells[j][i].digit;
+                    *cell.digit_placed_in_solve_mode    = undo_grid->cells[j][i].placed_in_solve_mode;
+                    *cell.uncertain                     = undo_grid->cells[j][i].uncertain;
+                    *cell.  certain                     = undo_grid->cells[j][i].  certain;
+                    *cell.color_bitfield                = undo_grid->cells[j][i].color_bitfield;
                 }
             }
 
@@ -631,10 +665,10 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
             Sudoku_Cell cell = get_cell(to_save, i, j);
 
             save_struct.grid.cells[j][i].digit = *cell.digit;
-            save_struct.grid.cells[j][i].placed_in_solve_mode    = cell.marking->digit_placed_in_solve_mode;
-            save_struct.grid.cells[j][i].uncertain               = cell.marking->uncertain;
-            save_struct.grid.cells[j][i].  certain               = cell.marking->  certain;
-            save_struct.grid.cells[j][i].color_bitfield          = cell.marking->color_bitfield;
+            save_struct.grid.cells[j][i].placed_in_solve_mode    = *cell.digit_placed_in_solve_mode;
+            save_struct.grid.cells[j][i].uncertain               = *cell.uncertain;
+            save_struct.grid.cells[j][i].  certain               = *cell.  certain;
+            save_struct.grid.cells[j][i].color_bitfield          = *cell.color_bitfield;
         }
     }
 
@@ -672,10 +706,10 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
                 Sudoku_Grid_Cell cell = get_grid_cell(grid, i, j);
                 // TODO use get_cell();
                 undo_grid.cells[j][i].digit                = *cell.digit;
-                undo_grid.cells[j][i].placed_in_solve_mode = cell.marking->digit_placed_in_solve_mode;
-                undo_grid.cells[j][i].uncertain            = cell.marking->uncertain;
-                undo_grid.cells[j][i].certain              = cell.marking->certain;
-                undo_grid.cells[j][i].color_bitfield       = cell.marking->color_bitfield;
+                undo_grid.cells[j][i].placed_in_solve_mode = *cell.digit_placed_in_solve_mode;
+                undo_grid.cells[j][i].uncertain            = *cell.uncertain;
+                undo_grid.cells[j][i].certain              = *cell.  certain;
+                undo_grid.cells[j][i].color_bitfield       = *cell.color_bitfield;
             }
         }
 

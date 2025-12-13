@@ -248,11 +248,15 @@ const char *autosave_path = "./build/autosave.sudoku";
 int main(void) {
     init_context();
 
-    SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(context.window_width, context.window_height, "Sudoku");
-    SetTargetFPS(60);
 
+    SetConfigFlags(FLAG_WINDOW_RESIZABLE);  // the context contains the window width/height, and stuff updates dynamically.
+    SetTraceLogLevel(LOG_WARNING);          // only show warning or worse logs, the console is being spammed in LOG_INFO mode.
+    InitWindow(context.window_width, context.window_height, "Sudoku");
+    SetTargetFPS(60);                       // probably could hit 144fps, but maybe later.
+
+    // this is my own font system, the functions mimic raylibs style.
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
+    // this is my own sound system, the functions *DO NOT* mimic raylibs style.
     init_sounds();
 
     // the perhaps better option would be to make DebugDraw## versions of the draw
@@ -266,24 +270,22 @@ int main(void) {
 #define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
 
-    RenderTexture2D cell_background_texture = LoadRenderTexture(SUDOKU_CELL_SIZE, SUDOKU_CELL_SIZE);
-
-
-
+    // this should probably be in the context. maybe behind a pointer to make it easy to swap out.
+    // Sudoku *current_sudoku = &context.first_sudoku;
     Sudoku sudoku = ZEROED;
-    // make sure that load_sudoku_version_1(), respects this alloctor
+    // make sure that load_sudoku(), respects this alloctor
     sudoku.undo_buffer.allocator = Pool_Get(&context.pool);
     Array_Reserve(&sudoku.undo_buffer, 512); // just give it some room.
 
 
-    {
+    { // load the autosave.
         const char *error = load_sudoku(autosave_path, &sudoku);
         if (error) {
             log_error("Failed To Load Save '%s': %s", autosave_path, error);
             // TODO make a "clear grid" function.
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    *get_cell(&sudoku, i, j).digit = NO_DIGIT_PLACED;
+                    Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
                 }
             }
         } else {
@@ -600,7 +602,7 @@ int main(void) {
 
 
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
                     bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
 
                     switch (layer_to_place) {
@@ -608,13 +610,13 @@ int main(void) {
                             if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
                         } break;
                         case SUL_CERTAIN: {
-                            if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->  certain & (1 << (number_pressed)));
+                            if (!has_digit) remove_number_this_press = remove_number_this_press && ((*cell.  certain) & (1 << (number_pressed)));
                         } break;
                         case SUL_UNCERTAIN: {
-                            if (!has_digit) remove_number_this_press = remove_number_this_press && (cell.marking->uncertain & (1 << (number_pressed)));
+                            if (!has_digit) remove_number_this_press = remove_number_this_press && ((*cell.uncertain) & (1 << (number_pressed)));
                         } break;
                         case SUL_COLOR: {
-                            remove_number_this_press = remove_number_this_press && (cell.marking->color_bitfield & (1 << (number_pressed)));
+                            remove_number_this_press = remove_number_this_press && ((*cell.color_bitfield) & (1 << (number_pressed)));
                         } break;
                     }
                 }
@@ -627,7 +629,7 @@ int main(void) {
 
 
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
                     bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
 
                     switch (layer_to_place) {
@@ -643,21 +645,21 @@ int main(void) {
 
                     case SUL_CERTAIN: {
                         if (!has_digit) {
-                            if (remove_number_this_press)   cell.marking->  certain &= ~(1 << number_pressed);
-                            else                            cell.marking->  certain |=  (1 << number_pressed);
+                            if (remove_number_this_press)   *cell.  certain &= ~(1 << number_pressed);
+                            else                            *cell.  certain |=  (1 << number_pressed);
                         }
                     } break;
 
                     case SUL_UNCERTAIN: {
                         if (!has_digit) {
-                            if (remove_number_this_press)   cell.marking->uncertain &= ~(1 << number_pressed);
-                            else                            cell.marking->uncertain |=  (1 << number_pressed);
+                            if (remove_number_this_press)   *cell.uncertain &= ~(1 << number_pressed);
+                            else                            *cell.uncertain |=  (1 << number_pressed);
                         }
                     } break;
 
                     case SUL_COLOR: {
-                        if (remove_number_this_press)   cell.marking->color_bitfield &= ~(1 << number_pressed);
-                        else                            cell.marking->color_bitfield |=  (1 << number_pressed);
+                        if (remove_number_this_press)   *cell.color_bitfield &= ~(1 << number_pressed);
+                        else                            *cell.color_bitfield |=  (1 << number_pressed);
                     } break;
                     }
                 }
@@ -675,15 +677,15 @@ int main(void) {
                     if (!cell.ui->is_selected) continue;
 
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
                     bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
 
                     // TODO maybe if you have cntl press or something it dose something different?
 
                     if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
-                    if (cell.marking->  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
-                    if (cell.marking->uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
-                    if (cell.marking->color_bitfield)       layer_to_delete = Min(layer_to_delete, SUL_COLOR);
+                    if (*cell.  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
+                    if (*cell.uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
+                    if (*cell.color_bitfield)       layer_to_delete = Min(layer_to_delete, SUL_COLOR);
                 }
             }
 
@@ -694,7 +696,7 @@ int main(void) {
                     if (!cell.ui->is_selected) continue;
 
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !cell.marking->digit_placed_in_solve_mode;
+                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
                     bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
 
                     switch (layer_to_delete) {
@@ -703,9 +705,9 @@ int main(void) {
                             Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED);
                         }
                     } break;
-                    case SUL_CERTAIN:   { cell.marking->  certain      = 0; } break;
-                    case SUL_UNCERTAIN: { cell.marking->uncertain      = 0; } break;
-                    case SUL_COLOR:     { cell.marking->color_bitfield = 0; } break;
+                    case SUL_CERTAIN:   { *cell.  certain      = 0; } break;
+                    case SUL_UNCERTAIN: { *cell.uncertain      = 0; } break;
+                    case SUL_COLOR:     { *cell.color_bitfield = 0; } break;
                     }
                 }
             }
@@ -735,12 +737,12 @@ int main(void) {
                     Int_Array color_bits = ZEROED;
                     color_bits.allocator = context.scratch;
 
-                    #define MAX_BITS_SET    (sizeof(cell.marking->color_bitfield)*8)
+                    #define MAX_BITS_SET    (sizeof(*cell.color_bitfield)*8)
                     static_assert(Array_Len(SUDOKU_COLOR_BITFIELD_COLORS) == MAX_BITS_SET, "no more than 32 colors please.");
 
                     // loop over all bits, and get the index's of the colors.
                     for (u32 k = 0; k < MAX_BITS_SET; k++) {
-                        if (cell.marking->color_bitfield & (1 << k)) Array_Append(&color_bits, k);
+                        if (*cell.color_bitfield & (1 << k)) Array_Append(&color_bits, k);
                     }
 
 
@@ -863,7 +865,7 @@ int main(void) {
                     const char *text = TextFormat("%d", *cell.digit);
 
                     Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                    Color text_color = cell.marking->digit_placed_in_solve_mode ? FONT_COLOR_MARKING : FONT_COLOR;
+                    Color text_color = *cell.digit_placed_in_solve_mode ? FONT_COLOR_MARKING : FONT_COLOR;
 
                     DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
                 } else {
@@ -872,8 +874,8 @@ int main(void) {
                     Int_Array certain_numbers   = { .allocator = context.scratch };
 
                     for (u8 k = 0; k <= 9; k++) {
-                        if (cell.marking->uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
-                        if (cell.marking->  certain & (1 << k)) Array_Append(&  certain_numbers, k);
+                        if (*cell.uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
+                        if (*cell.  certain & (1 << k)) Array_Append(&  certain_numbers, k);
                     }
 
 
@@ -1028,7 +1030,6 @@ int main(void) {
 
     uninit_sounds();
     UnloadRenderTexture(debug_texture);
-    UnloadRenderTexture(cell_background_texture);
     UnloadDynamicFonts();
 
     CloseWindow();
