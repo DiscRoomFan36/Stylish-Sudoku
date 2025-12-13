@@ -231,6 +231,7 @@ void init_context(void) {
             .cell_font_color_for_marking    = BLUE,    // @Color
 
             // @Color
+            // Also think about the order of these things.
             .cell_color_bitfield = {
 /*  0         */ context.theme.sudoku.cell_background,
 /*  1,  2,  3 */ rgba(235, 229, 68, 1),        BLUE,       GREEN,
