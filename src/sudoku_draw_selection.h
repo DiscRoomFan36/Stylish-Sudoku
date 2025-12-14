@@ -13,10 +13,10 @@ typedef struct {
     // how far along in the animation it is.
     // [0..1]
     f64 t_animation;
-    
+
     Sudoku_UI_Grid prev_ui_state;
     Sudoku_UI_Grid curr_ui_state;
-    
+
 } Selected_Animation;
 
 typedef struct {
@@ -576,7 +576,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
                         draw_lines_extra.as_array[index_corner] = draw_lines.as_array[index_corner];
 
-                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_extra, RED);//color);
+                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_extra, color);
 
                         draw_lines.as_array[index_corner] = false;
                     }

@@ -307,13 +307,20 @@ void draw_logger_frame(s32 x, s32 y) {
         position.x += x;
         position.y += y;
 
+
         Color text_color = context.theme.logger.text_color;
         if (log.level == LOG_LEVEL_ERROR) text_color = context.theme.logger.error_text_color;
+
+        Color color_background = context.theme.logger.box_background;
+        Color color_frame = context.theme.logger.box_frame_color;
+
 
         if (log.t > LOGGER_BEFORE_START_FADE_OUT) {
             f64 factor = Remap(log.t, LOGGER_BEFORE_START_FADE_OUT, 1, 0, 1);
             // slow at the start, then moves fast
-            text_color = Fade(text_color, 1-(factor*factor*factor));
+            text_color       = Fade(text_color, 1-(factor*factor*factor));
+            color_background = Fade(color_background, 1-(factor*factor*factor));
+            color_frame      = Fade(color_frame, 1-(factor*factor*factor));
         }
 
         s32 max_text_width = 400; // TODO
@@ -339,8 +346,8 @@ void draw_logger_frame(s32 x, s32 y) {
         position.x += padding;
         position.y += padding;
 
-        DrawRectangleRec(box, context.theme.logger.box_background);
-        DrawRectangleFrameRec(box, padding/2, context.theme.logger.box_frame_color);
+        DrawRectangleRec(box, color_background);
+        DrawRectangleFrameRec(box, padding/2, color_frame);
 
         for (u32 i = 0; i < lines.count; i++) {
             String line = lines.items[i];

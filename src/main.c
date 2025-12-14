@@ -73,14 +73,19 @@ typedef struct {
         Color cell_background;
         Color cell_lines;
         Color box_lines;
-    
-        Color cell_digits_color;
+
+        Color cell_digit_font_color;
+        // for the placed_in_solve_mode digits
         Color cell_font_color_for_marking;
-        
+        // for certen markings
+        Color cell_font_color_for_certen;
+        // for uncerten markings.
+        Color cell_font_color_for_uncerten;
+
         // turn "nth bit set" into a color
         Color cell_color_bitfield[32];
     } sudoku;
-    
+
     Color select_highlight;
 
     struct {
@@ -217,42 +222,82 @@ void init_context(void) {
     context.global_sound_array          .allocator = Pool_Get(&context.pool);
     context.logged_messages_to_display  .allocator = Pool_Get(&context.pool);
 
+    { // theme stuff
+        Mem_Zero_Struct(&context.theme);
 
-    context.theme = (Theme){
-        .background = rgb(245, 200, 87),
 
-        .sudoku = {
-            .cell_background    = rgb(255, 238, 145),
-            .cell_lines         = rgb(226, 133, 46),
-            .box_lines          = rgb(226, 133, 46),
+        // https://coolors.co/visualizer/7f5539-a68a64-ede0d4-656d4a-414833
+        const Color pallet_1 = rgb(127, 85, 57);
+        const Color pallet_2 = rgb(166, 138, 100);
+        const Color pallet_3 = rgb(237, 224, 212);
+        const Color pallet_4 = rgb(101, 109, 74);
+        const Color pallet_5 = rgb(65, 72, 51);
 
-            // TODO this is the color of the digits that was placed in builder mode.
-            .cell_digits_color              = BLACK,   // @Color
-            .cell_font_color_for_marking    = BLUE,    // @Color
+        const Color pallet_select = rgb(0, 162, 255);
 
-            // @Color
-            // Also think about the order of these things.
-            .cell_color_bitfield = {
-/*  0         */ context.theme.sudoku.cell_background,
-/*  1,  2,  3 */ rgba(235, 229, 68, 1),        BLUE,       GREEN,
-/*  4,  5,  6 */ GRAY,          ORANGE,     PURPLE,
-/*  7,  8,  9 */ DARKGRAY,      BROWN,      MAROON,
-            },
-        },
+        context.theme.background = pallet_3;
 
-        .select_highlight = rgb(171, 224, 240),
+        context.theme.sudoku.cell_background    = pallet_3;
+        context.theme.sudoku.cell_lines         = pallet_4;
+        context.theme.sudoku.box_lines          = pallet_5;
 
-        .logger = {
-            .text_color         = BLACK, // @Color
-            .error_text_color   = RED,   // @Color
+        context.theme.sudoku.cell_digit_font_color          = pallet_5;
+        context.theme.sudoku.cell_font_color_for_marking    = pallet_select;
+        context.theme.sudoku.cell_font_color_for_certen     = pallet_select;
+        context.theme.sudoku.cell_font_color_for_uncerten   = pallet_select;
 
-            .box_background     = WHITE, // @Color
-            .box_frame_color    = BLACK, // @Color
-        },
-    };
 
-    // i dont think it works the way i have it above.
-    context.theme.sudoku.cell_color_bitfield[0] = context.theme.sudoku.cell_background;
+        {
+            const Color transparent = rgba(0, 0, 0, 0);
+
+            // Colors stolen from https://sudokupad.app
+            const Color cell_colors[Array_Len(context.theme.sudoku.cell_color_bitfield)] = {
+                transparent,          // cell color 0
+                rgb(214, 214, 214),   // cell color 1
+                rgb(124, 124, 124),   // cell color 2
+                rgb( 36,  36,  36),   // cell color 3
+                rgb(179, 229, 106),   // cell color 4
+                rgb(232, 124, 241),   // cell color 5
+                rgb(228, 150,  50),   // cell color 6
+                rgb(245,  58,  55),   // cell color 7
+                rgb(252, 235,  63),   // cell color 8
+                rgb( 61, 153, 245),   // cell color 9
+                transparent,          // cell color a
+                rgb(204,  51,  17),   // cell color b
+                rgb( 17, 119,  51),   // cell color c
+                rgb(  0,  68, 196),   // cell color d
+                rgb(238, 153, 170),   // cell color e
+                rgb(255, 255,  25),   // cell color f
+                rgb(240,  70, 240),   // cell color g
+                rgb(160,  90,  30),   // cell color h
+                rgb( 51, 187, 238),   // cell color i
+                rgb(145,  30, 180),   // cell color j
+                transparent,          // cell color k
+                rgb(245,  58,  55),   // cell color l
+                rgb( 76, 175,  80),   // cell color m
+                rgb( 61, 153, 245),   // cell color n
+                rgb(249, 136, 134),   // cell color o
+                rgb(149, 208, 151),   // cell color p
+                rgb(158, 204, 250),   // cell color q
+                rgb(170,  12,   9),   // cell color r
+                rgb( 47, 106,  49),   // cell color s
+                rgb(  9,  89, 170),   // cell color t
+            };
+
+            static_assert(sizeof(cell_colors) <= sizeof(context.theme.sudoku.cell_color_bitfield), "just making sure.");
+            Mem_Copy(context.theme.sudoku.cell_color_bitfield, (void*)cell_colors, sizeof(cell_colors));
+        }
+
+        context.theme.select_highlight = pallet_select;
+
+        const Color pallet_error = rgb(255, 55, 0);
+
+        context.theme.logger.text_color         = pallet_4; // @Color
+        context.theme.logger.error_text_color   = pallet_error;   // @Color
+
+        context.theme.logger.box_background     = pallet_3; // @Color
+        context.theme.logger.box_frame_color    = pallet_5; // @Color
+    }
 
 }
 void uninit_context(void) {
@@ -396,7 +441,7 @@ int main(void) {
             toggle_when_pressed(&in_solve_mode, KEY_B);
 
             const char *text = in_solve_mode ? "SOLVE"              : "BUILD";
-            Color text_color = in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digits_color;
+            Color text_color = in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
             Vector2 text_pos = { context.window_width/2, 10 + FONT_SIZE/2 };
             DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
         }
@@ -788,8 +833,11 @@ int main(void) {
                     }
 
 
+                    // were always gonna draw the cell background, because some cell colors are transparent.
+                    DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_background);
+
                     if (color_bits.count == 0) {
-                        DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_background);
+                        // do nothing.
                     } else if (color_bits.count == 1) {
                         // a very obvious special case. only one color
                         DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_color_bitfield[color_bits.items[0]]);
@@ -907,7 +955,7 @@ int main(void) {
                     const char *text = TextFormat("%d", *cell.digit);
 
                     Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                    Color text_color = *cell.digit_placed_in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digits_color;
+                    Color text_color = *cell.digit_placed_in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
 
                     DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
                 } else {
@@ -931,7 +979,7 @@ int main(void) {
 
                             Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
                             text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
-                            DrawTextCentered(font_and_size, text, text_pos, context.theme.sudoku.cell_font_color_for_marking);
+                            DrawTextCentered(font_and_size, text, text_pos, context.theme.sudoku.cell_font_color_for_uncerten);
                         }
                     }
 
@@ -953,7 +1001,7 @@ int main(void) {
                         }
 
                         Vector2 text_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                        DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, context.theme.sudoku.cell_font_color_for_marking);
+                        DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, context.theme.sudoku.cell_font_color_for_certen);
                     }
                 }
 
