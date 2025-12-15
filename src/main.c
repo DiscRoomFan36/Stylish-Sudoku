@@ -227,8 +227,8 @@ void init_context(void) {
 
 
         // https://coolors.co/visualizer/7f5539-a68a64-ede0d4-656d4a-414833
-        const Color pallet_1 = rgb(127, 85, 57);
-        const Color pallet_2 = rgb(166, 138, 100);
+        // const Color pallet_1 = rgb(127, 85, 57);
+        // const Color pallet_2 = rgb(166, 138, 100);
         const Color pallet_3 = rgb(237, 224, 212);
         const Color pallet_4 = rgb(101, 109, 74);
         const Color pallet_5 = rgb(65, 72, 51);
