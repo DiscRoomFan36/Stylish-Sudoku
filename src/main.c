@@ -209,6 +209,21 @@ void init_context(void) {
 
 
     Mem_Zero_Struct(&context.pool);
+
+    // SDL_RenderCoordinatesFromWindow
+
+    // here we preallocate some buffers, i was having some trouble trying to
+    // get emscripten to allocate memory with my arena allocators, this is a
+    // hack to give me a bit of room to work with.
+    //
+    // this allocates 32 MB sort of unessessarily.
+    // still less than 1 javascript object.
+    local_persist u8 buffers[NUM_POOL_ARENAS][1 * MEGABYTE];
+    for (u32 i = 0; i < NUM_POOL_ARENAS; i++) {
+        Arena_Add_Buffer_As_Storeage_Space(&context.pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
+    }
+
+
     context.scratch = Pool_Get(&context.pool);
 
     Mem_Zero_Struct(&context.input);
@@ -341,6 +356,8 @@ int main(void) {
     InitWindow(context.window_width, context.window_height, "Sudoku");
     SetTargetFPS(60);                       // probably could hit 144fps, but maybe later.
 
+
+
     // this is my own font system, the functions mimic raylibs style.
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
     // this is my own sound system, the functions *DO NOT* mimic raylibs style.
@@ -355,7 +372,6 @@ int main(void) {
     RenderTexture2D debug_texture = LoadRenderTexture(context.window_width, context.window_height);
 
 #define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
-
 
     // this should probably be in the context. maybe behind a pointer to make it easy to swap out.
     // Sudoku *current_sudoku = &context.first_sudoku;

@@ -303,9 +303,18 @@ s32   Mem_Cmp (void *ptr1, void *ptr2, u64 count);
 // ===================================================
 
 
-#ifndef ARENA_ASSERT
-    #define ARENA_ASSERT    ASSERT
+// if you provide a version of ARENA_PANIC that dose not abort(),
+// we will return immidiatly after this macro is called.
+#ifndef ARENA_PANIC
+    #define ARENA_PANIC(file, line, reason, ...)                                                            \
+        do {                                                                                                \
+            fprintf(stderr, "===========================================\n");                               \
+            fprintf(stderr, "%s:%d: ARENA PANIC: \"" reason "\"\n", (file), (line), ##__VA_ARGS__);         \
+            fprintf(stderr, "===========================================\n");                               \
+            abort();                                                                                        \
+        } while(0)
 #endif
+
 
 #ifndef ARENA_REGION_DEFAULT_CAPACITY
     #define ARENA_REGION_DEFAULT_CAPACITY   (32 * KILOBYTE)
@@ -376,12 +385,22 @@ typedef struct Arena_Mark {
     u64 count;
 } Arena_Mark;
 
-void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, u64 alignment, b32 clear_to_zero);
-// Clear to zero by default
-#define Arena_Alloc(arena, size)                            _Arena_Alloc((arena), (size), Default_Alignment, true)
-#define Arena_Alloc_Clear(arena, size, clear_to_zero)       _Arena_Alloc((arena), (size), Default_Alignment, (clear_to_zero))
-#define Arena_Alloc_Struct(arena, type)                     (type *)_Arena_Alloc((arena),           sizeof(type), Alignof(type), true)
-#define Arena_Alloc_Array(arena, count, type)               (type *)_Arena_Alloc((arena), (count) * sizeof(type), Alignof(type), true)
+
+typedef struct {
+    u64 alignment;
+    b32 clear_to_zero;
+} Arena_Alloc_Opt;
+
+
+// Allocate some memory in a arena, uses macro tricks to give you more options.
+void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line);
+
+#define Arena_Alloc(arena, size, ...)      _Arena_Alloc((arena), (size), (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = true, __VA_ARGS__ }, __FILE__, __LINE__)
+#define Arena_Alloc_Struct(arena, type, ...)                         (type *)Arena_Alloc((arena), sizeof(type), .alignment = Alignof(type), ##__VA_ARGS__)
+
+
+
+
 
 // get an arena's current position, to rewind it later.
 Arena_Mark Arena_Get_Mark(Arena *arena);
@@ -391,11 +410,17 @@ void Arena_Set_To_Mark(Arena *arena, Arena_Mark mark);
 // Will do nothing if the first page is already created.
 //
 // If 'first_page_size_in_bytes' is set to 0, the default is used, see 'minimum_allocation_size' comment above.
-void Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes);
+void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, const char *file, s32 line);
+#define Arena_Initialize_First_Page(arena, first_page_size_in_bytes)        \
+    _Arena_Initialize_First_Page((arena), (first_page_size_in_bytes), __FILE__, __LINE__);
+
 
 // Care has been taken, so that when Arena_free is called,
 // the pointer to the buffer provided here will not be free'd.
-void Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes);
+void _Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, const char *file, s32 line);
+
+#define Arena_Add_Buffer_As_Storeage_Space(arena, buffer, buffer_size_in_bytes)     \
+    _Arena_Add_Buffer_As_Storeage_Space((arena), (buffer), (buffer_size_in_bytes), __FILE__, __LINE__)
 
 
 // sprintf useing the arena as a buffer.
@@ -638,7 +663,7 @@ void String_Builder_Free(String_Builder *sb);
 #define _Array_Header_ struct { u64 count; u64 capacity; Arena *allocator; }
 
 typedef _Array_Header_ Array_Header;
-void *Array_Grow(Array_Header *header, void *array, u64 item_size, u64 item_align, u64 count, b32 clear_to_zero);
+void *Array_Grow(Array_Header *header, void *array, u64 item_size, u64 item_align, u64 count, b32 clear_to_zero, const char *file, s32 line);
 void Array_Shift(Array_Header *header, void *array, u64 item_size, u64 from_index);
 
 #define Array_Header_Cast(a)    ((Array_Header*)(a))
@@ -646,31 +671,31 @@ void Array_Shift(Array_Header *header, void *array, u64 item_size, u64 from_inde
 #define Array_Item_Align(a)     Alignof(*(a)->items)
 
 // add a single value
-#define Array_Append(a, value)                                                                                                                  \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + 1, false),    \
+#define Array_Append(a, value)                                                                                                                                      \
+    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + 1, false, __FILE__, __LINE__),    \
     (a)->items[(a)->count++] = (value))
 
 // add 'n' unzero'd items, returns a pointer to the first element
-#define Array_Add(a, n)                                                                                                                         \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + (n), false),  \
-    (a)->count += (n),                                                                                                                          \
+#define Array_Add(a, n)                                                                                                                                             \
+    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + (n), false, __FILE__, __LINE__),  \
+    (a)->count += (n),                                                                                                                                              \
     &(a)->items[(a)->count - (n)])
 
 
 // Add 'n' zero'd items to the back of the list
-#define Array_Add_Clear(a, n)                                                                                                                   \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + (n), true),   \
-    (a)->count += (n),                                                                                                                          \
+#define Array_Add_Clear(a, n)                                                                                                                                       \
+    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + (n), true, __FILE__, __LINE__),   \
+    (a)->count += (n),                                                                                                                                              \
     &(a)->items[(a)->count - (n)])
 
 // make sure there is enough room to hold 'n' items, dose not increase count.
-#define Array_Reserve(a, n)                                                                                             \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (n), false))
+#define Array_Reserve(a, n)                                                                                                                             \
+    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (n), false, __FILE__, __LINE__))
 
-#define Array_Insert(a, i, value)                                                                                                               \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + 1, false),    \
-    Mem_Move((a)->items + (i), (a)->items + i - 1, ((a)->count - (i)) * Array_Item_Size(a)),                                                    \
-    (a)->items[(i)] = (value),                                                                                                                  \
+#define Array_Insert(a, i, value)                                                                                                                                   \
+    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + 1, false, __FILE__, __LINE__),    \
+    Mem_Move((a)->items + (i), (a)->items + i - 1, ((a)->count - (i)) * Array_Item_Size(a)),                                                                        \
+    (a)->items[(i)] = (value),                                                                                                                                      \
     (a)->count += 1)
 
 #define Array_Remove(a, i, n)                                                                               \
@@ -1012,36 +1037,45 @@ internal inline void *Arena_Internal_Get_New_Memory_At_Last_Region(Arena *arena,
 }
 
 
-void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, u64 alignment, b32 clear_to_zero) {
+void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line) {
+    // TODO track allocations.
+
     u64 default_size = (arena->minimum_allocation_size != 0) ? arena->minimum_allocation_size : ARENA_REGION_DEFAULT_CAPACITY;
 
     // add the extra alignment because if you have to allocate the thing,
     // the alignment of the Region is kinda random, with + alignment, the allocation will always succeed.
-    u64 to_alloc_if_no_room = Max(default_size, size_in_bytes + alignment);
+    u64 to_alloc_if_no_room = Max(default_size, size_in_bytes + opt.alignment);
 
     // if the arena currently holds no memory
     if (arena->last == NULL) {
-        ARENA_ASSERT(arena->first == NULL);
+        if (arena->first != NULL) {
+            ARENA_PANIC(file, line, "arena->first != NULL, only these library functions should touch the insides of an arena.");
+            return NULL;
+        }
 
-        if (arena->dont_panic_when_allocation_failure) {
-            ARENA_ASSERT(false && "Arena_alloc: attempted to allocate new memory, but that has been disallowed. (when there was no memory to begin with.)");
+        if (arena->panic_when_trying_to_allocate_new_page) {
+            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, but that has been disallowed. (when there was no memory to begin with.)");
+            return NULL;
         }
 
         arena->last = Arena_Internal_New_Region(to_alloc_if_no_room);
         if (arena->last == NULL) {
             if (arena->dont_panic_when_allocation_failure) return NULL;
-            ARENA_ASSERT(false && "Arena_alloc: attempted to allocate new memory, got null. (when there was no memory to begin with.)");
+            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, got null. (when there was no memory to begin with.)");
+            return NULL;
         }
 
         arena->first = arena->last;
 
-        void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, alignment, clear_to_zero);
-        ASSERT(new_memory);
+        void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
+        if (!new_memory) {
+            ARENA_PANIC(file, line, "new_memory from internal allocator returned null wtf.");
+        }
         return new_memory;
     }
 
     // find room, or find the end
-    while ((arena->last->count_in_bytes + size_in_bytes + alignment > arena->last->capacity_in_bytes) && (arena->last->next != NULL)) {
+    while ((arena->last->count_in_bytes + size_in_bytes + opt.alignment > arena->last->capacity_in_bytes) && (arena->last->next != NULL)) {
         arena->last = arena->last->next;
         if (arena->last) {
             // if we just discoverd this, it must be zero'd.
@@ -1050,18 +1084,25 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, u64 alignment, b32 clear_to_
         }
     }
 
-    if (arena->last->count_in_bytes + size_in_bytes + alignment <= arena->last->capacity_in_bytes) {
+    if (arena->last->count_in_bytes + size_in_bytes + opt.alignment <= arena->last->capacity_in_bytes) {
         // if there is space alloc
-        void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, alignment, clear_to_zero);
-        ASSERT(new_memory);
+        void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
+        if (!new_memory) {
+            ARENA_PANIC(file, line, "new_memory from internal allocator returned null wtf.");
+        }
         return new_memory;
 
     } else {
         // we need a new region
-        ARENA_ASSERT(arena->last->next == NULL);
+
+        if (arena->last->next != NULL) {
+            ARENA_PANIC(file, line, "arena->last->next != NULL, only these library functions should touch the insides of an arena, and they should never produce this state.");
+            return NULL;
+        }
 
         if (arena->panic_when_trying_to_allocate_new_page) {
-            ARENA_ASSERT(false && "Arena_alloc: attempted to allocate new memory, but that has been disallowed.");
+            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, but that has been disallowed.");
+            return NULL;
         }
 
         Region *last_last = arena->last;
@@ -1069,16 +1110,19 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, u64 alignment, b32 clear_to_
         arena->last = Arena_Internal_New_Region(to_alloc_if_no_room);
         if (arena->last == NULL) {
             if (arena->dont_panic_when_allocation_failure) return NULL;
-            ARENA_ASSERT(false && "Arena_alloc: attempted to allocate new memory, got null.");
+            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, got null.");
         }
         last_last->next = arena->last;
 
 
-        void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, alignment, clear_to_zero);
-        ASSERT(new_memory);
+        void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
+        if (!new_memory) {
+            ARENA_PANIC(file, line, "new_memory from internal allocator returned null wtf.");
+        }
         return new_memory;
     }
 }
+
 
 
 Arena_Mark Arena_Get_Mark(Arena *arena) {
@@ -1096,20 +1140,31 @@ void Arena_Set_To_Mark(Arena *arena, Arena_Mark mark) {
 }
 
 
-void Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes) {
+void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, const char *file, s32 line) {
     if (arena->first != NULL) return;
 
     u64 tmp_min_alloc_size = arena->minimum_allocation_size;
     arena->minimum_allocation_size = first_page_size_in_bytes;
 
-    Arena_Alloc_Clear(arena, 0, false);
+    _Arena_Alloc(
+        arena, 0,
+        (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = false, },
+        file, line
+    );
 
     arena->minimum_allocation_size = tmp_min_alloc_size;
 }
 
-void Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes) {
-    ARENA_ASSERT(buffer != NULL && "why did you pass this to us.");
-    ARENA_ASSERT(buffer_size_in_bytes > sizeof(Region) && "The passed in buffer must be big enough to contain the Region, preferably much bigger");
+
+void _Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, const char *file, s32 line) {
+    if (buffer == NULL) {
+        ARENA_PANIC(file, line, "Arena_Add_Buffer_As_Storeage_Space: buffer != NULL, why did you pass this to us.");
+        return;
+    }
+    if (buffer_size_in_bytes <= sizeof(Region)) {
+        ARENA_PANIC(file, line, "Arena_Add_Buffer_As_Storeage_Space: buffer_size_in_bytes <= sizeof(Region), The passed in buffer must be big enough to contain the Region, preferably much bigger");
+        return;
+    }
 
     u64 real_allocatable_space = buffer_size_in_bytes - sizeof(Region);
 
@@ -1121,7 +1176,9 @@ void Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_s
 
 
     if (arena->last == NULL) {
-        ARENA_ASSERT(arena->first == NULL);
+        if (arena->first != NULL) {
+            ARENA_PANIC(file, line, "Arena_Add_Buffer_As_Storeage_Space: arena->first != NULL, something went wrong internaly");
+        }
         arena->first = new_region;
         arena->last  = new_region;
 
@@ -1148,7 +1205,11 @@ const char *Arena_sprintf(Arena *arena, const char *format, ...) {
         s64 formatted_size = vsnprintf(buf, buf_size, format, args);
     va_end(args);
 
-    ARENA_ASSERT(formatted_size >= 0 && "format was successful");
+    if (formatted_size < 0) {
+        // TODO ? accept file and line here? i never use this function anyway...
+        ARENA_PANIC(__FILE__, __LINE__, "Arena_sprintf: format was not successful");
+        return NULL;
+    }
 
     // i dont know if this should be <= or just <, hmm...
     if ((u64)formatted_size < buf_size) {
@@ -1161,8 +1222,15 @@ const char *Arena_sprintf(Arena *arena, const char *format, ...) {
     } else {
         // else we need to allocate some space.
 
-        buf      = (char*)Arena_Alloc_Clear(arena, (u64)formatted_size+1, false);
+        buf      = (char*)Arena_Alloc(arena, (u64)formatted_size+1, .clear_to_zero = false);
+        // buf      = (char*)Arena_Alloc_Clear(arena, (u64)formatted_size+1, false);
         buf_size = (u64)formatted_size+1;
+
+        // only happens when Arena_Alloc either returns null because it was
+        // allowed to return null, or it panic'd (and the panic function was
+        // replaced with something that dosent abort), either way the user
+        // of this function will expect this to maybe be null.
+        if (!buf) return NULL;
 
         va_start(args, format);
             vsnprintf(buf, buf_size, format, args);
@@ -1592,7 +1660,8 @@ internal Character_Buffer *String_Builder_Internal_Maybe_Expand_To_Fit(String_Bu
         u64 to_add_size = Max(size, default_size);
 
         if (sb->allocator) {
-            last_buffer->data = (char*) Arena_Alloc_Clear(sb->allocator, to_add_size * sizeof(char), true);
+            last_buffer->data = (char*) Arena_Alloc(sb->allocator, to_add_size * sizeof(char), .clear_to_zero = true);
+            // last_buffer->data = (char*) Arena_Alloc_Clear(sb->allocator, to_add_size * sizeof(char), true);
         } else {
             last_buffer->data = (char*) BESTED_MALLOC(to_add_size * sizeof(char));
             Mem_Zero(last_buffer->data, to_add_size * sizeof(char));
@@ -1706,7 +1775,8 @@ String String_Builder_To_String(String_Builder *sb) {
     };
 
     if (sb->allocator) {
-        result.data = (char*) Arena_Alloc_Clear(sb->allocator, count+1, false);
+        result.data = (char*) Arena_Alloc(sb->allocator, count+1, .clear_to_zero = false);
+        // result.data = (char*) Arena_Alloc_Clear(sb->allocator, count+1, false);
     } else {
         result.data = (char*) BESTED_MALLOC(count+1);
     }
@@ -1787,7 +1857,7 @@ void String_Builder_Free(String_Builder *sb) {
 //                Dynamic Arrays
 // ===================================================
 
-void *Array_Grow(Array_Header *header, void *array, u64 item_size, u64 item_align, u64 count, b32 clear_to_zero) {
+void *Array_Grow(Array_Header *header, void *array, u64 item_size, u64 item_align, u64 count, b32 clear_to_zero, const char *file, s32 line) {
     if (count > header->capacity) {
         header->capacity = header->capacity ? header->capacity * 2 : ARRAY_INITAL_CAPACITY;
         while (header->capacity < count) header->capacity *= 2;
@@ -1811,7 +1881,13 @@ void *Array_Grow(Array_Header *header, void *array, u64 item_size, u64 item_alig
                 }
             }
 
-            new_array = _Arena_Alloc(header->allocator, item_size * header->capacity, item_align, false);
+            void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line);
+
+            new_array = _Arena_Alloc(
+                header->allocator, item_size * header->capacity,
+                (Arena_Alloc_Opt){.alignment = item_align, .clear_to_zero = false, },
+                file, line
+            );
             Mem_Copy(new_array, array, item_size * header->count);
         } else {
             new_array = BESTED_ALIGNED_ALLOC(item_align, item_size * header->capacity);
@@ -1917,8 +1993,10 @@ void *_Map_Grow(Map_Header *header, void *kv_array, u64 key_size, u64 kv_pair_si
         Map_Hash_Entry *new_table;
         if (header->allocator) {
             // do we care about proper alignment? Nah
+            // new_kv_array = Arena_Alloc(header->allocator, new_capacity * kv_pair_size);
+            // new_table    = Arena_Alloc_Array(header->allocator, new_table_size, Map_Hash_Entry);
             new_kv_array = Arena_Alloc(header->allocator, new_capacity * kv_pair_size);
-            new_table    = Arena_Alloc_Array(header->allocator, new_table_size, Map_Hash_Entry);
+            new_table    = Arena_Alloc(header->allocator, new_table_size * sizeof(Map_Hash_Entry), .alignment = Alignof(Map_Hash_Entry));
         } else {
             new_kv_array = BESTED_MALLOC(new_capacity * kv_pair_size);
             new_table    = (Map_Hash_Entry*) BESTED_MALLOC(new_table_size * sizeof(Map_Hash_Entry));
@@ -2001,7 +2079,8 @@ String Read_Entire_File(Arena *arena, String filename) {
 
         if (length >= 0) {
             result.length = (u64)length;
-            result.data = (char*) Arena_Alloc_Clear(arena, result.length+1, false);
+            result.data = (char*) Arena_Alloc(arena, result.length+1, .clear_to_zero = false);
+            // result.data = (char*) Arena_Alloc_Clear(arena, result.length+1, false);
             if (result.data) {
                 u64 read_bytes = fread(result.data, 1, result.length, file);
                 ASSERT(read_bytes == result.length);
