@@ -175,6 +175,10 @@ typedef struct {
     Logged_Message_Array        logged_messages_to_display;
 
 
+    Sudoku sudoku_base;
+    Sudoku *sudoku;
+
+
     Theme theme;
 
 } Context;
@@ -236,6 +240,14 @@ void init_context(void) {
     context.selection_animation_array   .allocator = Pool_Get(&context.pool);
     context.global_sound_array          .allocator = Pool_Get(&context.pool);
     context.logged_messages_to_display  .allocator = Pool_Get(&context.pool);
+
+
+    // make sure that load_sudoku(), respects this alloctor
+    context.sudoku = &context.sudoku_base;
+    context.sudoku->undo_buffer.allocator = Pool_Get(&context.pool);
+    Array_Reserve(&context.sudoku->undo_buffer, 512); // just give it some room.
+
+
 
     { // theme stuff
         Mem_Zero_Struct(&context.theme);
@@ -373,22 +385,16 @@ int main(void) {
 
 #define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
-    // this should probably be in the context. maybe behind a pointer to make it easy to swap out.
-    // Sudoku *current_sudoku = &context.first_sudoku;
-    Sudoku sudoku = ZEROED;
-    // make sure that load_sudoku(), respects this alloctor
-    sudoku.undo_buffer.allocator = Pool_Get(&context.pool);
-    Array_Reserve(&sudoku.undo_buffer, 512); // just give it some room.
 
 
     { // load the autosave.
-        const char *error = load_sudoku(autosave_path, &sudoku);
+        const char *error = load_sudoku(autosave_path, context.sudoku);
         if (error) {
             log_error("Failed To Load Save '%s': %s", autosave_path, error);
             // TODO make a "clear grid" function.
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
+                    Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
                 }
             }
         } else {
@@ -399,16 +405,16 @@ int main(void) {
 
 #define Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku) Mem_Eq(&(sudoku)->grid, &(sudoku)->undo_buffer.items[(sudoku)->undo_buffer.count-1], sizeof((sudoku)->grid))
 
-    if (sudoku.undo_buffer.count == 0) {
-        Array_Append(&sudoku.undo_buffer, sudoku.grid);
-        sudoku.redo_count = 0;
+    if (context.sudoku->undo_buffer.count == 0) {
+        Array_Append(&context.sudoku->undo_buffer, context.sudoku->grid);
+        context.sudoku->redo_count = 0;
     }
-    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
+    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku));
 
 
 
     while (!WindowShouldClose()) {
-        ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku));
+        ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku));
 
 
         Arena_Clear(context.scratch);
@@ -488,13 +494,13 @@ int main(void) {
             //
             // if shift is not pressed, and the cursor couldnt move to the cell,
             // but will be able to, it dosn't move.
-            if (get_cell(&sudoku, cursor_x, cursor_y).ui->is_selected) {
+            if (get_cell(context.sudoku, cursor_x, cursor_y).ui->is_selected) {
                 cursor_x = prev_x;
                 cursor_y = prev_y;
             }
 
             if (context.debug_draw_cursor_position) {
-                Rectangle rec = get_cell_bounds(&sudoku, cursor_x, cursor_y);
+                Rectangle rec = get_cell_bounds(context.sudoku, cursor_x, cursor_y);
                 DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
             }
         }
@@ -534,19 +540,19 @@ int main(void) {
         ////////////////////////////////
 
         if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
-            if (sudoku.undo_buffer.count > 1) {
-                sudoku.undo_buffer.count    -= 1;
-                sudoku.redo_count           += 1;
-                sudoku.grid = sudoku.undo_buffer.items[sudoku.undo_buffer.count - 1];
+            if (context.sudoku->undo_buffer.count > 1) {
+                context.sudoku->undo_buffer.count   -= 1;
+                context.sudoku->redo_count          += 1;
+                context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
             }
         }
 
         // TODO cntl-x should be cut, but we dont have that yet.
         if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
-            if (sudoku.redo_count > 0) {
-                sudoku.undo_buffer.count    += 1;
-                sudoku.redo_count           -= 1;
-                sudoku.grid = sudoku.undo_buffer.items[sudoku.undo_buffer.count - 1];
+            if (context.sudoku->redo_count > 0) {
+                context.sudoku->undo_buffer.count   += 1;
+                context.sudoku->redo_count          -= 1;
+                context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
             }
         }
 
@@ -560,7 +566,7 @@ int main(void) {
             ////////////////////////////////////////////////
             //              Selection stuff
             ////////////////////////////////////////////////
-            Sudoku_UI_Grid previous_ui = sudoku.ui;
+            Sudoku_UI_Grid previous_ui = context.sudoku->ui;
 
             bool clicked_on_box = false;
             s8 click_i, click_j;
@@ -568,8 +574,8 @@ int main(void) {
             // phase 1
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell        = get_cell(&sudoku, i, j);
-                    Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
+                    Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
+                    Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
 
 
                     // selected stuff
@@ -611,8 +617,8 @@ int main(void) {
             if (context.debug_draw_smaller_cell_hitbox) BeginTextureMode(debug_texture);
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell        = get_cell(&sudoku, i, j);
-                    Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
+                    Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
+                    Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
 
                     // selected stuff, mouse dragging
                     Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
@@ -639,14 +645,14 @@ int main(void) {
                     when_dragging_to_set_selected_to = true;
 
 
-                    Sudoku_Cell cell = get_cell(&sudoku, click_i, click_j);
+                    Sudoku_Cell cell = get_cell(context.sudoku, click_i, click_j);
 
                     if (*cell.digit != NO_DIGIT_PLACED) {
                         // select every digit that is this digit
                         s8 digit_to_select = *cell.digit;
                         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                                Sudoku_Cell this_cell = get_cell(&sudoku, i, j);
+                                Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
 
                                 if (*this_cell.digit == digit_to_select)    this_cell.ui->is_selected = true;
                             }
@@ -657,7 +663,7 @@ int main(void) {
                         // TODO be smarter and think about the marking and colors for this
                         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                                Sudoku_Cell this_cell = get_cell(&sudoku, i, j);
+                                Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
                                 if (*this_cell.digit == NO_DIGIT_PLACED)    this_cell.ui->is_selected = true;
                             }
                         }
@@ -671,7 +677,7 @@ int main(void) {
                 bool selected_changed = false;
                 for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                     for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                        bool is_selected = cell_is_selected(&sudoku.ui, i, j);
+                        bool is_selected = cell_is_selected(&context.sudoku->ui, i, j);
 
                         if (is_selected != previous_ui.grid[j][i].is_selected) {
                             selected_changed = true;
@@ -684,7 +690,7 @@ int main(void) {
                     Selected_Animation new_animation = {
                         .t_animation   = 0,
                         .prev_ui_state = previous_ui,
-                        .curr_ui_state = sudoku.ui,
+                        .curr_ui_state = context.sudoku->ui,
                     };
 
                     Array_Append(&context.selection_animation_array, new_animation);
@@ -700,7 +706,7 @@ int main(void) {
         if (number_pressed != NO_DIGIT_PLACED) {
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
                     if (!cell.ui->is_selected) continue;
 
 
@@ -727,7 +733,7 @@ int main(void) {
 
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
                     if (!cell.ui->is_selected) continue;
 
 
@@ -739,9 +745,9 @@ int main(void) {
                     case SUL_DIGIT: {
                         if (slot_is_modifiable) {
                             if (remove_number_this_press) {
-                                Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED);
+                                Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
                             } else {
-                                Place_Digit(&sudoku.grid, i, j, number_pressed, .in_solve_mode = in_solve_mode);
+                                Place_Digit(&context.sudoku->grid, i, j, number_pressed, .in_solve_mode = in_solve_mode);
                             }
                         }
                     } break;
@@ -776,7 +782,7 @@ int main(void) {
         if (input->keyboard.delete_pressed) {
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
                     if (!cell.ui->is_selected) continue;
 
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
@@ -795,7 +801,7 @@ int main(void) {
 
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(&sudoku, i, j);
+                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
                     if (!cell.ui->is_selected) continue;
 
                     bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
@@ -805,7 +811,7 @@ int main(void) {
                     switch (layer_to_delete) {
                     case SUL_DIGIT: {
                         if (slot_is_modifiable) {
-                            Place_Digit(&sudoku.grid, i, j, NO_DIGIT_PLACED);
+                            Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
                         }
                     } break;
                     case SUL_CERTAIN:   { *cell.  certain      = 0; } break;
@@ -820,9 +826,9 @@ int main(void) {
         ////////////////////////////////////////////////
         //             Undo / Redo
         ////////////////////////////////////////////////
-        if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(&sudoku)) {
-            Array_Append(&sudoku.undo_buffer, sudoku.grid);
-            sudoku.redo_count = 0;
+        if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku)) {
+            Array_Append(&context.sudoku->undo_buffer, context.sudoku->grid);
+            context.sudoku->redo_count = 0;
         }
 
 
@@ -832,8 +838,8 @@ int main(void) {
         ////////////////////////////////////////////////
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell        = get_cell(&sudoku, i, j);
-                Rectangle   cell_bounds = get_cell_bounds(&sudoku, i, j);
+                Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
+                Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
 
 
                 { // draw color shading / cell background
@@ -1071,7 +1077,7 @@ int main(void) {
                 animation = &context.selection_animation_array.items[0];
             }
 
-            draw_sudoku_selection(&sudoku, animation);
+            draw_sudoku_selection(context.sudoku, animation);
         }
 
 
@@ -1080,8 +1086,8 @@ int main(void) {
             // Lines that seperate the Boxes
             for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
-                    Rectangle ul_box = get_cell_bounds(&sudoku, i*3,     j*3    );
-                    Rectangle dr_box = get_cell_bounds(&sudoku, i*3 + 2, j*3 + 2);
+                    Rectangle ul_box = get_cell_bounds(context.sudoku, i*3,     j*3    );
+                    Rectangle dr_box = get_cell_bounds(context.sudoku, i*3 + 2, j*3 + 2);
 
                     Rectangle region_box = {
                         ul_box.x,
@@ -1099,8 +1105,8 @@ int main(void) {
             }
 
             { // this outer box hits 1 extra pixel.
-                Rectangle ul_box = get_cell_bounds(&sudoku, 0, 0);
-                Rectangle dr_box = get_cell_bounds(&sudoku, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
+                Rectangle ul_box = get_cell_bounds(context.sudoku, 0, 0);
+                Rectangle dr_box = get_cell_bounds(context.sudoku, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
 
                 Rectangle region_box = {
                     ul_box.x,
@@ -1129,7 +1135,7 @@ int main(void) {
     }
 
 
-    bool result = save_sudoku(autosave_path, &sudoku);
+    bool result = save_sudoku(autosave_path, context.sudoku);
     if (!result) {
         log_error("something went wrong when saveing");
     }

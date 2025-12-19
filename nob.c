@@ -154,7 +154,7 @@ int main(int argc, char **argv) {
     // if (!build_release())   return 1;
 
 
-    if (!build_wasm()) return 1;
+    // if (!build_wasm()) return 1;
 
     return 0;
 }
