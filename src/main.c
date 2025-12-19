@@ -6,6 +6,12 @@
 
 
 
+
+#ifdef PLATFORM_WEB
+    #include <emscripten/emscripten.h>
+#endif
+
+
 #include <raylib.h>
 #include <raymath.h>
 
@@ -381,14 +387,11 @@ internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKe
 const char *autosave_path = "./build/autosave.sudoku";
 
 void do_one_frame(void);
-void do_one_frame() {
-}
 
 int main(void) {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);  // the context contains the window width/height, and stuff updates dynamically.
     SetTraceLogLevel(LOG_WARNING);          // only show warning or worse logs, the console is being spammed in LOG_INFO mode.
     InitWindow(INITAL_WINDOW_WIDTH, INITAL_WINDOW_HEIGHT, "Sudoku");
-    SetTargetFPS(60);                       // probably could hit 144fps, but maybe later.
 
 
     init_context();
@@ -425,726 +428,22 @@ int main(void) {
 
 
 
+#ifdef PLATFORM_WEB
+
+    emscripten_set_main_loop(do_one_frame, 0, 1);
+
+#else
+
+    // probably could hit 144fps, but maybe later.
+    //
+    // also only run this when building for desktop.
+    SetTargetFPS(60);
+
     while (!WindowShouldClose()) {
-        ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku));
-
-
-        Arena_Clear(context.scratch);
-
-        BeginDrawing();
-        ClearBackground(context.theme.background);
-
-        {
-            s32 prev_window_width   = context.window_width;
-            s32 prev_window_height  = context.window_height;
-
-            context.window_width    = GetScreenWidth();
-            context.window_height   = GetScreenHeight();
-
-            if (prev_window_width != context.window_width || prev_window_height != context.window_height) {
-                UnloadRenderTexture(context.debug_texture);
-                context.debug_texture = LoadRenderTexture(context.window_width, context.window_height);
-            }
-        }
-
-
-        // Clear debug to all zero's
-        DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
-
-
-
-
-        ////////////////////////////////
-        //        User Input
-        ////////////////////////////////
-        update_input();
-        Input *input = get_input();
-
-
-        toggle_when_pressed(&context.debug_draw_smaller_cell_hitbox,    KEY_F1);
-        toggle_when_pressed(&context.debug_draw_cursor_position,        KEY_F2);
-        toggle_when_pressed(&context.debug_draw_color_points,           KEY_F3);
-
-
-        toggle_when_pressed(&context.debug_draw_fps,                    KEY_F4);
-        if (context.debug_draw_fps) DebugDraw(DrawFPS(context.window_width - 100, 10));
-
-
-        local_persist bool in_solve_mode = true;
-        {
-            toggle_when_pressed(&in_solve_mode, KEY_B);
-
-            const char *text = in_solve_mode ? "SOLVE"              : "BUILD";
-            Color text_color = in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
-            Vector2 text_pos = { context.window_width/2, 10 + FONT_SIZE/2 };
-            DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
-        }
-
-
-        ////////////////////////////////
-        //        Selection
-        ////////////////////////////////
-        local_persist bool when_dragging_to_set_selected_to = true;
-        if (!input->mouse.left.down) when_dragging_to_set_selected_to = true;
-
-
-        local_persist s8 cursor_x = SUDOKU_SIZE / 2; // should be 4 (the middle)
-        local_persist s8 cursor_y = SUDOKU_SIZE / 2; // should be 4 (the middle)
-        {
-            s8 prev_x = cursor_x;
-            s8 prev_y = cursor_y;
-
-            if (input->keyboard.direction.up_pressed   ) cursor_y -= 1;
-            if (input->keyboard.direction.down_pressed ) cursor_y += 1;
-            if (input->keyboard.direction.left_pressed ) cursor_x -= 1;
-            if (input->keyboard.direction.right_pressed) cursor_x += 1;
-
-            cursor_x = Proper_Mod(cursor_x, SUDOKU_SIZE);
-            cursor_y = Proper_Mod(cursor_y, SUDOKU_SIZE);
-
-            // cursor cannot go back over a selected cell.
-            //
-            // if shift is not pressed, and the cursor couldnt move to the cell,
-            // but will be able to, it dosn't move.
-            if (get_cell(context.sudoku, cursor_x, cursor_y).ui->is_selected) {
-                cursor_x = prev_x;
-                cursor_y = prev_y;
-            }
-
-            if (context.debug_draw_cursor_position) {
-                Rectangle rec = get_cell_bounds(context.sudoku, cursor_x, cursor_y);
-                DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
-            }
-        }
-
-
-        ////////////////////////////////
-        //       placeing digits
-        ////////////////////////////////
-        Sudoku_UI_Layer layer_to_place;
-        if      (input->keyboard.shift_down && input->keyboard.control_down) layer_to_place = SUL_COLOR;
-        else if (input->keyboard.shift_down)                                 layer_to_place = SUL_UNCERTAIN;
-        else if (input->keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
-        else                                                                 layer_to_place = SUL_DIGIT;
-
-        // determines wheather a number was pressed to put it into the grid.
-        s8 number_pressed = NO_DIGIT_PLACED;
-        {
-            u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
-            for (u32 i = 0; i < Array_Len(number_keys); i++) {
-                if (IsKeyPressed(number_keys[i]))   number_pressed = i;
-            }
-        }
-
-
-        ////////////////////////////////
-        //       removing digits
-        ////////////////////////////////
-        // make sure that all boxes get the same result after pressing a key (all add or all remove)
-        bool remove_number_this_press = true;
-
-        Sudoku_UI_Layer layer_to_delete = SUL_COLOR; // lowest priority
-
-
-
-        ////////////////////////////////
-        //         Undo / Redo
-        ////////////////////////////////
-
-        if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
-            if (context.sudoku->undo_buffer.count > 1) {
-                context.sudoku->undo_buffer.count   -= 1;
-                context.sudoku->redo_count          += 1;
-                context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
-            }
-        }
-
-        // TODO cntl-x should be cut, but we dont have that yet.
-        if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
-            if (context.sudoku->redo_count > 0) {
-                context.sudoku->undo_buffer.count   += 1;
-                context.sudoku->redo_count          -= 1;
-                context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
-            }
-        }
-
-
-
-        ////////////////////////////////////////////////
-        //            update sudoku grid
-        ////////////////////////////////////////////////
-
-        {
-            ////////////////////////////////////////////////
-            //              Selection stuff
-            ////////////////////////////////////////////////
-            Sudoku_UI_Grid previous_ui = context.sudoku->ui;
-
-            bool clicked_on_box = false;
-            s8 click_i, click_j;
-
-            // phase 1
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
-                    Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
-
-
-                    // selected stuff
-                    bool mouse_is_over = CheckCollisionPointRec(input->mouse.pos, cell_bounds);
-                    cell.ui->is_hovering_over = mouse_is_over;
-
-                    if (input->mouse.left.clicked) {
-                        if (mouse_is_over) {
-                            clicked_on_box = true;
-                            click_i = i; click_j = j;
-
-                            if (input->keyboard.shift_or_control_down) {
-                                // start of deselection drag
-                                cell.ui->is_selected = !cell.ui->is_selected; // TOGGLE
-                            } else {
-                                // just this one will be selected
-                                cell.ui->is_selected = true;
-                            }
-                            when_dragging_to_set_selected_to = cell.ui->is_selected;
-                        } else {
-                            // only stay active if shift or cntl is down
-                            cell.ui->is_selected = cell.ui->is_selected && input->keyboard.shift_or_control_down;
-                        }
-                    }
-
-                    if (input->keyboard.any_direction_pressed) {
-                        bool cursor_is_here = ((s8)i == cursor_x) && ((s8)j == cursor_y);
-                        cell.ui->is_selected = cursor_is_here || (input->keyboard.shift_or_control_down && cell.ui->is_selected);
-                    }
-
-                }
-            }
-
-
-            // phase 2
-
-            // NOTE this begin/end TextureMode stuff is because if it was inside
-            // this 9*9 loop, it drags the fps down to 30.
-            if (context.debug_draw_smaller_cell_hitbox) BeginTextureMode(context.debug_texture);
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
-                    Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
-
-                    // selected stuff, mouse dragging
-                    Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
-                    if (context.debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
-
-                    if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
-                        cell.ui->is_selected = when_dragging_to_set_selected_to;
-                        cursor_x = i; cursor_y = j; // move the cursor here as well.
-                    }
-                }
-            }
-            if (context.debug_draw_smaller_cell_hitbox) EndTextureMode();
-
-
-
-            if (clicked_on_box) {
-                cursor_x = click_i; cursor_y = click_j; // put cursor wherever mouse is.
-
-                if (input->mouse.left.double_clicked) {
-                    // @Hack, this variable will make the cell de-select right away,
-                    // fix it here.
-                    //
-                    // this code is becomeing dangerous.
-                    when_dragging_to_set_selected_to = true;
-
-
-                    Sudoku_Cell cell = get_cell(context.sudoku, click_i, click_j);
-
-                    if (*cell.digit != NO_DIGIT_PLACED) {
-                        // select every digit that is this digit
-                        s8 digit_to_select = *cell.digit;
-                        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                                Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
-
-                                if (*this_cell.digit == digit_to_select)    this_cell.ui->is_selected = true;
-                            }
-                        }
-
-                    } else {
-                        // select every empty cell
-                        // TODO be smarter and think about the marking and colors for this
-                        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                                Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
-                                if (*this_cell.digit == NO_DIGIT_PLACED)    this_cell.ui->is_selected = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-
-            // all the selection stuff has now happened. now do some animation stuff.
-            {
-                bool selected_changed = false;
-                for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                    for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                        bool is_selected = cell_is_selected(&context.sudoku->ui, i, j);
-
-                        if (is_selected != previous_ui.grid[j][i].is_selected) {
-                            selected_changed = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (selected_changed) {
-                    Selected_Animation new_animation = {
-                        .t_animation   = 0,
-                        .prev_ui_state = previous_ui,
-                        .curr_ui_state = context.sudoku->ui,
-                    };
-
-                    Array_Append(&context.selection_animation_array, new_animation);
-                }
-            }
-        }
-
-
-
-        ////////////////////////////////////////////////
-        //              Placeing Digits
-        ////////////////////////////////////////////////
-        if (number_pressed != NO_DIGIT_PLACED) {
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
-                    if (!cell.ui->is_selected) continue;
-
-
-                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
-
-                    switch (layer_to_place) {
-                        case SUL_DIGIT: {
-                            if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
-                        } break;
-                        case SUL_CERTAIN: {
-                            if (!has_digit) remove_number_this_press = remove_number_this_press && ((*cell.  certain) & (1 << (number_pressed)));
-                        } break;
-                        case SUL_UNCERTAIN: {
-                            if (!has_digit) remove_number_this_press = remove_number_this_press && ((*cell.uncertain) & (1 << (number_pressed)));
-                        } break;
-                        case SUL_COLOR: {
-                            remove_number_this_press = remove_number_this_press && ((*cell.color_bitfield) & (1 << (number_pressed)));
-                        } break;
-                    }
-                }
-            }
-
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
-                    if (!cell.ui->is_selected) continue;
-
-
-                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
-
-                    switch (layer_to_place) {
-                    case SUL_DIGIT: {
-                        if (slot_is_modifiable) {
-                            if (remove_number_this_press) {
-                                Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
-                            } else {
-                                Place_Digit(&context.sudoku->grid, i, j, number_pressed, .in_solve_mode = in_solve_mode);
-                            }
-                        }
-                    } break;
-
-                    case SUL_CERTAIN: {
-                        if (!has_digit) {
-                            if (remove_number_this_press)   *cell.  certain &= ~(1 << number_pressed);
-                            else                            *cell.  certain |=  (1 << number_pressed);
-                        }
-                    } break;
-
-                    case SUL_UNCERTAIN: {
-                        if (!has_digit) {
-                            if (remove_number_this_press)   *cell.uncertain &= ~(1 << number_pressed);
-                            else                            *cell.uncertain |=  (1 << number_pressed);
-                        }
-                    } break;
-
-                    case SUL_COLOR: {
-                        if (remove_number_this_press)   *cell.color_bitfield &= ~(1 << number_pressed);
-                        else                            *cell.color_bitfield |=  (1 << number_pressed);
-                    } break;
-                    }
-                }
-            }
-        }
-
-
-        ////////////////////////////////////////////////
-        //             Removeing Digits
-        ////////////////////////////////////////////////
-        if (input->keyboard.delete_pressed) {
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
-                    if (!cell.ui->is_selected) continue;
-
-                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
-
-                    // TODO maybe if you have cntl press or something it dose something different?
-
-                    if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
-                    if (*cell.  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
-                    if (*cell.uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
-                    if (*cell.color_bitfield)       layer_to_delete = Min(layer_to_delete, SUL_COLOR);
-                }
-            }
-
-
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Sudoku_Cell cell = get_cell(context.sudoku, i, j);
-                    if (!cell.ui->is_selected) continue;
-
-                    bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
-                    bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                    bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
-
-                    switch (layer_to_delete) {
-                    case SUL_DIGIT: {
-                        if (slot_is_modifiable) {
-                            Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
-                        }
-                    } break;
-                    case SUL_CERTAIN:   { *cell.  certain      = 0; } break;
-                    case SUL_UNCERTAIN: { *cell.uncertain      = 0; } break;
-                    case SUL_COLOR:     { *cell.color_bitfield = 0; } break;
-                    }
-                }
-            }
-        }
-
-
-        ////////////////////////////////////////////////
-        //             Undo / Redo
-        ////////////////////////////////////////////////
-        if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku)) {
-            Array_Append(&context.sudoku->undo_buffer, context.sudoku->grid);
-            context.sudoku->redo_count = 0;
-        }
-
-
-
-        ////////////////////////////////////////////////
-        //             draw sudoku grid
-        ////////////////////////////////////////////////
-        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
-                Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
-
-
-                { // draw color shading / cell background
-                    Int_Array color_bits = ZEROED;
-                    color_bits.allocator = context.scratch;
-
-                    #define MAX_BITS_SET    (sizeof(*cell.color_bitfield)*8)
-                    static_assert(Array_Len(context.theme.sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
-
-                    // loop over all bits, and get the index's of the colors.
-                    for (u32 k = 0; k < MAX_BITS_SET; k++) {
-                        if (*cell.color_bitfield & (1 << k)) Array_Append(&color_bits, k);
-                    }
-
-
-                    // were always gonna draw the cell background, because some cell colors are transparent.
-                    DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_background);
-
-                    if (color_bits.count == 0) {
-                        // do nothing.
-                    } else if (color_bits.count == 1) {
-                        // a very obvious special case. only one color
-                        DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_color_bitfield[color_bits.items[0]]);
-                    } else {
-
-                        //
-                        // We're going to split the cell into sections, and paint them with
-                        // the colors the user selected in the bit mask,
-                        //
-                        // first generate points arond a circle, place them in the middle of the cell,
-                        // then extend them until there past the edge of the rectangle,
-                        // create a line between the middle and that point,
-                        //
-                        // find the point and line on the rectangle that intersects it,
-                        // fint the intersection with the next point, in the list,
-                        // turns that section into a bunch of triangles and render it.
-                        //
-                        Vector2 points[MAX_BITS_SET];
-                        u32 points_count = color_bits.count;
-
-                        // NOTE this option will always case lag, because its
-                        // turning off and on again in such quick succsesstion,
-                        //
-                        // these gards will help, but if every cell has colors will still slow down.
-                        if (context.debug_draw_color_points) BeginTextureMode(context.debug_texture);
-                        for (u32 point_index = 0; point_index < points_count; point_index++) {
-                            f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
-                            f32 percent = (f32)point_index / (f32)points_count;
-
-                            // -percent makes the points be done in clockwise order.
-                            //
-                            // * SUDOKU_CELL_SIZE means that the points are garenteed to be outside the cell.
-                            // (but thay could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
-                            points[point_index].x = sinf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
-                            points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
-
-                            if (context.debug_draw_color_points) {
-                                Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
-                                DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
-                            }
-                        }
-                        if (context.debug_draw_color_points) EndTextureMode();
-
-
-                        Vector2 middle = {SUDOKU_CELL_SIZE/2, SUDOKU_CELL_SIZE/2};
-
-                        Line *rectangle_lines = RectangleToLines((Rectangle){0, 0, SUDOKU_CELL_SIZE, SUDOKU_CELL_SIZE});
-                        u32 rectangle_line_index = 0;
-                        for (u32 point_index = 0; point_index < points_count; point_index++) {
-                            Vector2 fan_points[8] = {middle};
-                            u32 fan_points_count = 1;
-
-                            Vector2 point = points[point_index];
-                            Line line_checking = {.start = middle, .end = point};
-
-                            bool seen_start = false;
-                            bool seen_end   = false;
-
-
-                            // 4 + 1 means we have to check the top edge of the rec again, could probablty
-                            // restructure this loop so we dont have to check everty edge every time but what ever.
-                            while (rectangle_line_index < 4 + 1) {
-                                Line rec_line = rectangle_lines[rectangle_line_index % 4];
-
-                                Vector2 hit_loc;
-                                bool hit = CheckCollisionLinesL(line_checking, rec_line, &hit_loc);
-                                if (!hit) {
-                                    if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner of the rectangle.
-                                    rectangle_line_index += 1;
-                                    continue;
-                                }
-
-                                if (!seen_start) {
-                                    seen_start = true;
-                                    fan_points[fan_points_count++] = hit_loc;
-                                    line_checking = (Line){.start = middle, .end = points[(point_index+1) % points_count]};
-                                    continue;
-                                } else {
-                                    seen_end = true;
-                                    fan_points[fan_points_count++] = hit_loc;
-                                    break;
-                                }
-
-                            }
-
-                            ASSERT(seen_start && seen_end);
-                            ASSERT(fan_points_count <= 5);
-
-                            Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
-                            for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
-                                fan_points[fan_index].x += cell_bounds.x;
-                                fan_points[fan_index].y += cell_bounds.y;
-                            }
-                            DrawTrianglesFromStartPoint(fan_points, fan_points_count, color);
-                        }
-
-                    }
-                }
-
-
-
-
-                { // draw cell surrounding frame
-                    Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
-                    DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, context.theme.sudoku.cell_lines);
-                }
-
-
-                if (*cell.digit != NO_DIGIT_PLACED) {
-                    // draw placed digit
-
-                    // TODO do it smart
-                    // char buf[2] = ZEROED;
-                    // DrawTextCodepoint();
-                    const char *text = TextFormat("%d", *cell.digit);
-
-                    Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                    Color text_color = *cell.digit_placed_in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
-
-                    DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
-                } else {
-                    // draw uncertain and certain digits
-                    Int_Array uncertain_numbers = { .allocator = context.scratch };
-                    Int_Array certain_numbers   = { .allocator = context.scratch };
-
-                    for (u8 k = 0; k <= 9; k++) {
-                        if (*cell.uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
-                        if (*cell.  certain & (1 << k)) Array_Append(&  certain_numbers, k);
-                    }
-
-
-                    // draw uncertain numbers around the edge of the box
-                    if (uncertain_numbers.count) {
-                        ASSERT(uncertain_numbers.count <= Array_Len(MARKING_LOCATIONS));
-                        Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE_UNCERTAIN); // what matters more? speed or binding energy?
-                        for (u32 k = 0; k < uncertain_numbers.count; k++) {
-                            // TODO do it smarter like above.
-                            const char *text = TextFormat("%d", uncertain_numbers.items[k]);
-
-                            Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
-                            text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
-                            DrawTextCentered(font_and_size, text, text_pos, context.theme.sudoku.cell_font_color_for_uncerten);
-                        }
-                    }
-
-
-                    // draw small certain numbers in the middle of the box
-                    if (certain_numbers.count) {
-                        ASSERT(certain_numbers.count <= SUDOKU_MAX_MARKINGS);
-
-                        char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
-                        for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
-
-                        s32 font_size = FONT_SIZE_MARKING_CERTAIN_MAX_SIZE;
-                        if (certain_numbers.count > MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING) {
-                            font_size = Remap(
-                                certain_numbers.count,
-                                MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING, SUDOKU_MAX_MARKINGS,
-                                FONT_SIZE_MARKING_CERTAIN_MAX_SIZE, FONT_SIZE_MARKING_CERTAIN_MIN_SIZE
-                            );
-                        }
-
-                        Vector2 text_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                        DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, context.theme.sudoku.cell_font_color_for_certen);
-                    }
-                }
-
-
-                // hovering
-                if (cell.ui->is_hovering_over) {
-                    f32 factor = !cell.ui->is_selected ? 0.2 : 0.05; // make it lighter when it is selected.
-                    Color color = Fade(BLACK, factor); // cool trick // @Color
-
-                    // NOTE this code is not with the selection code because
-                    // it feels better when it acts immediately.
-                    DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), color);
-                }
-            }
-        }
-
-
-        { // do selected animation
-            // how long it takes to go though one animation
-            const f64 animation_speed_in_seconds = 0.2;
-
-            f64 animation_speed = 1 / animation_speed_in_seconds;
-
-
-            local_persist bool debug_slow_down_animation = false;
-            toggle_when_pressed(&debug_slow_down_animation, KEY_F5);
-            if (debug_slow_down_animation) animation_speed = 0.1;
-
-
-            #define Square(x) ((x)*(x))
-
-            // speed up the animation the more elements tere, are. to try and catch up
-            animation_speed *= Square(context.selection_animation_array.count);
-            f64 dt = input->time.dt * animation_speed;
-
-            while (context.selection_animation_array.count > 0) {
-                Selected_Animation *animation = &context.selection_animation_array.items[0];
-                animation->t_animation += dt;
-
-                if (animation->t_animation >= 1) {
-                    dt = animation->t_animation - 1;
-                    Array_Remove(&context.selection_animation_array, 0, 1);
-                } else {
-                    break;
-                }
-            }
-
-
-            Selected_Animation *animation = NULL;
-            if (context.selection_animation_array.count > 0) {
-                animation = &context.selection_animation_array.items[0];
-            }
-
-            draw_sudoku_selection(context.sudoku, animation);
-        }
-
-
-
-        {
-            // Lines that seperate the Boxes
-            for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
-                    Rectangle ul_box = get_cell_bounds(context.sudoku, i*3,     j*3    );
-                    Rectangle dr_box = get_cell_bounds(context.sudoku, i*3 + 2, j*3 + 2);
-
-                    Rectangle region_box = {
-                        ul_box.x,
-                        ul_box.y,
-                        (dr_box.x + dr_box.width ) - ul_box.x,
-                        (dr_box.y + dr_box.height) - ul_box.y,
-                    };
-
-                    DrawRectangleFrameRec(
-                        GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2),
-                        SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                        context.theme.sudoku.box_lines
-                    );
-                }
-            }
-
-            { // this outer box hits 1 extra pixel.
-                Rectangle ul_box = get_cell_bounds(context.sudoku, 0, 0);
-                Rectangle dr_box = get_cell_bounds(context.sudoku, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
-
-                Rectangle region_box = {
-                    ul_box.x,
-                    ul_box.y,
-                    (dr_box.x + dr_box.width ) - ul_box.x,
-                    (dr_box.y + dr_box.height) - ul_box.y,
-                };
-
-                DrawRectangleFrameRec(
-                    GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS),
-                    SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                    context.theme.sudoku.box_lines
-                );
-            }
-        }
-
-
-
-        // draw logged messages.
-        draw_logger_frame(10, 40);
-
-        // draw the debug stuff.
-        DrawTextureRightsideUp(context.debug_texture.texture, 0, 0);
-
-        EndDrawing();
+        do_one_frame();
     }
+#endif
+
 
 
     bool result = save_sudoku(autosave_path, context.sudoku);
@@ -1161,6 +460,730 @@ int main(void) {
 
     return result ? 0 : 1;
 }
+
+
+
+void do_one_frame() {
+    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku));
+
+
+    Arena_Clear(context.scratch);
+
+    BeginDrawing();
+    ClearBackground(context.theme.background);
+
+    {
+        s32 prev_window_width   = context.window_width;
+        s32 prev_window_height  = context.window_height;
+
+        context.window_width    = GetScreenWidth();
+        context.window_height   = GetScreenHeight();
+
+        if (prev_window_width != context.window_width || prev_window_height != context.window_height) {
+            UnloadRenderTexture(context.debug_texture);
+            context.debug_texture = LoadRenderTexture(context.window_width, context.window_height);
+        }
+    }
+
+
+    // Clear debug to all zero's
+    DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
+
+
+
+
+    ////////////////////////////////
+    //        User Input
+    ////////////////////////////////
+    update_input();
+    Input *input = get_input();
+
+
+    toggle_when_pressed(&context.debug_draw_smaller_cell_hitbox,    KEY_F1);
+    toggle_when_pressed(&context.debug_draw_cursor_position,        KEY_F2);
+    toggle_when_pressed(&context.debug_draw_color_points,           KEY_F3);
+
+
+    toggle_when_pressed(&context.debug_draw_fps,                    KEY_F4);
+    if (context.debug_draw_fps) DebugDraw(DrawFPS(context.window_width - 100, 10));
+
+
+    local_persist bool in_solve_mode = true;
+    {
+        toggle_when_pressed(&in_solve_mode, KEY_B);
+
+        const char *text = in_solve_mode ? "SOLVE"              : "BUILD";
+        Color text_color = in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
+        Vector2 text_pos = { context.window_width/2, 10 + FONT_SIZE/2 };
+        DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
+    }
+
+
+    ////////////////////////////////
+    //        Selection
+    ////////////////////////////////
+    local_persist bool when_dragging_to_set_selected_to = true;
+    if (!input->mouse.left.down) when_dragging_to_set_selected_to = true;
+
+
+    local_persist s8 cursor_x = SUDOKU_SIZE / 2; // should be 4 (the middle)
+    local_persist s8 cursor_y = SUDOKU_SIZE / 2; // should be 4 (the middle)
+    {
+        s8 prev_x = cursor_x;
+        s8 prev_y = cursor_y;
+
+        if (input->keyboard.direction.up_pressed   ) cursor_y -= 1;
+        if (input->keyboard.direction.down_pressed ) cursor_y += 1;
+        if (input->keyboard.direction.left_pressed ) cursor_x -= 1;
+        if (input->keyboard.direction.right_pressed) cursor_x += 1;
+
+        cursor_x = Proper_Mod(cursor_x, SUDOKU_SIZE);
+        cursor_y = Proper_Mod(cursor_y, SUDOKU_SIZE);
+
+        // cursor cannot go back over a selected cell.
+        //
+        // if shift is not pressed, and the cursor couldnt move to the cell,
+        // but will be able to, it dosn't move.
+        if (get_cell(context.sudoku, cursor_x, cursor_y).ui->is_selected) {
+            cursor_x = prev_x;
+            cursor_y = prev_y;
+        }
+
+        if (context.debug_draw_cursor_position) {
+            Rectangle rec = get_cell_bounds(context.sudoku, cursor_x, cursor_y);
+            DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
+        }
+    }
+
+
+    ////////////////////////////////
+    //       placeing digits
+    ////////////////////////////////
+    Sudoku_UI_Layer layer_to_place;
+    if      (input->keyboard.shift_down && input->keyboard.control_down) layer_to_place = SUL_COLOR;
+    else if (input->keyboard.shift_down)                                 layer_to_place = SUL_UNCERTAIN;
+    else if (input->keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
+    else                                                                 layer_to_place = SUL_DIGIT;
+
+    // determines wheather a number was pressed to put it into the grid.
+    s8 number_pressed = NO_DIGIT_PLACED;
+    {
+        u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
+        for (u32 i = 0; i < Array_Len(number_keys); i++) {
+            if (IsKeyPressed(number_keys[i]))   number_pressed = i;
+        }
+    }
+
+
+    ////////////////////////////////
+    //       removing digits
+    ////////////////////////////////
+    // make sure that all boxes get the same result after pressing a key (all add or all remove)
+    bool remove_number_this_press = true;
+
+    Sudoku_UI_Layer layer_to_delete = SUL_COLOR; // lowest priority
+
+
+
+    ////////////////////////////////
+    //         Undo / Redo
+    ////////////////////////////////
+
+    if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
+        if (context.sudoku->undo_buffer.count > 1) {
+            context.sudoku->undo_buffer.count   -= 1;
+            context.sudoku->redo_count          += 1;
+            context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
+        }
+    }
+
+    // TODO cntl-x should be cut, but we dont have that yet.
+    if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
+        if (context.sudoku->redo_count > 0) {
+            context.sudoku->undo_buffer.count   += 1;
+            context.sudoku->redo_count          -= 1;
+            context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
+        }
+    }
+
+
+
+    ////////////////////////////////////////////////
+    //            update sudoku grid
+    ////////////////////////////////////////////////
+
+    {
+        ////////////////////////////////////////////////
+        //              Selection stuff
+        ////////////////////////////////////////////////
+        Sudoku_UI_Grid previous_ui = context.sudoku->ui;
+
+        bool clicked_on_box = false;
+        s8 click_i, click_j;
+
+        // phase 1
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
+                Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
+
+
+                // selected stuff
+                bool mouse_is_over = CheckCollisionPointRec(input->mouse.pos, cell_bounds);
+                cell.ui->is_hovering_over = mouse_is_over;
+
+                if (input->mouse.left.clicked) {
+                    if (mouse_is_over) {
+                        clicked_on_box = true;
+                        click_i = i; click_j = j;
+
+                        if (input->keyboard.shift_or_control_down) {
+                            // start of deselection drag
+                            cell.ui->is_selected = !cell.ui->is_selected; // TOGGLE
+                        } else {
+                            // just this one will be selected
+                            cell.ui->is_selected = true;
+                        }
+                        when_dragging_to_set_selected_to = cell.ui->is_selected;
+                    } else {
+                        // only stay active if shift or cntl is down
+                        cell.ui->is_selected = cell.ui->is_selected && input->keyboard.shift_or_control_down;
+                    }
+                }
+
+                if (input->keyboard.any_direction_pressed) {
+                    bool cursor_is_here = ((s8)i == cursor_x) && ((s8)j == cursor_y);
+                    cell.ui->is_selected = cursor_is_here || (input->keyboard.shift_or_control_down && cell.ui->is_selected);
+                }
+
+            }
+        }
+
+
+        // phase 2
+
+        // NOTE this begin/end TextureMode stuff is because if it was inside
+        // this 9*9 loop, it drags the fps down to 30.
+        if (context.debug_draw_smaller_cell_hitbox) BeginTextureMode(context.debug_texture);
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
+                Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
+
+                // selected stuff, mouse dragging
+                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
+                if (context.debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
+
+                if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
+                    cell.ui->is_selected = when_dragging_to_set_selected_to;
+                    cursor_x = i; cursor_y = j; // move the cursor here as well.
+                }
+            }
+        }
+        if (context.debug_draw_smaller_cell_hitbox) EndTextureMode();
+
+
+
+        if (clicked_on_box) {
+            cursor_x = click_i; cursor_y = click_j; // put cursor wherever mouse is.
+
+            if (input->mouse.left.double_clicked) {
+                // @Hack, this variable will make the cell de-select right away,
+                // fix it here.
+                //
+                // this code is becomeing dangerous.
+                when_dragging_to_set_selected_to = true;
+
+
+                Sudoku_Cell cell = get_cell(context.sudoku, click_i, click_j);
+
+                if (*cell.digit != NO_DIGIT_PLACED) {
+                    // select every digit that is this digit
+                    s8 digit_to_select = *cell.digit;
+                    for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                        for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                            Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
+
+                            if (*this_cell.digit == digit_to_select)    this_cell.ui->is_selected = true;
+                        }
+                    }
+
+                } else {
+                    // select every empty cell
+                    // TODO be smarter and think about the marking and colors for this
+                    for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                        for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                            Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
+                            if (*this_cell.digit == NO_DIGIT_PLACED)    this_cell.ui->is_selected = true;
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // all the selection stuff has now happened. now do some animation stuff.
+        {
+            bool selected_changed = false;
+            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                    bool is_selected = cell_is_selected(&context.sudoku->ui, i, j);
+
+                    if (is_selected != previous_ui.grid[j][i].is_selected) {
+                        selected_changed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (selected_changed) {
+                Selected_Animation new_animation = {
+                    .t_animation   = 0,
+                    .prev_ui_state = previous_ui,
+                    .curr_ui_state = context.sudoku->ui,
+                };
+
+                Array_Append(&context.selection_animation_array, new_animation);
+            }
+        }
+    }
+
+
+
+    ////////////////////////////////////////////////
+    //              Placeing Digits
+    ////////////////////////////////////////////////
+    if (number_pressed != NO_DIGIT_PLACED) {
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                if (!cell.ui->is_selected) continue;
+
+
+                bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
+                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
+                switch (layer_to_place) {
+                    case SUL_DIGIT: {
+                        if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (*cell.digit == number_pressed);
+                    } break;
+                    case SUL_CERTAIN: {
+                        if (!has_digit) remove_number_this_press = remove_number_this_press && ((*cell.  certain) & (1 << (number_pressed)));
+                    } break;
+                    case SUL_UNCERTAIN: {
+                        if (!has_digit) remove_number_this_press = remove_number_this_press && ((*cell.uncertain) & (1 << (number_pressed)));
+                    } break;
+                    case SUL_COLOR: {
+                        remove_number_this_press = remove_number_this_press && ((*cell.color_bitfield) & (1 << (number_pressed)));
+                    } break;
+                }
+            }
+        }
+
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                if (!cell.ui->is_selected) continue;
+
+
+                bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
+                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
+                switch (layer_to_place) {
+                case SUL_DIGIT: {
+                    if (slot_is_modifiable) {
+                        if (remove_number_this_press) {
+                            Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
+                        } else {
+                            Place_Digit(&context.sudoku->grid, i, j, number_pressed, .in_solve_mode = in_solve_mode);
+                        }
+                    }
+                } break;
+
+                case SUL_CERTAIN: {
+                    if (!has_digit) {
+                        if (remove_number_this_press)   *cell.  certain &= ~(1 << number_pressed);
+                        else                            *cell.  certain |=  (1 << number_pressed);
+                    }
+                } break;
+
+                case SUL_UNCERTAIN: {
+                    if (!has_digit) {
+                        if (remove_number_this_press)   *cell.uncertain &= ~(1 << number_pressed);
+                        else                            *cell.uncertain |=  (1 << number_pressed);
+                    }
+                } break;
+
+                case SUL_COLOR: {
+                    if (remove_number_this_press)   *cell.color_bitfield &= ~(1 << number_pressed);
+                    else                            *cell.color_bitfield |=  (1 << number_pressed);
+                } break;
+                }
+            }
+        }
+    }
+
+
+    ////////////////////////////////////////////////
+    //             Removeing Digits
+    ////////////////////////////////////////////////
+    if (input->keyboard.delete_pressed) {
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                if (!cell.ui->is_selected) continue;
+
+                bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
+                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
+                // TODO maybe if you have cntl press or something it dose something different?
+
+                if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
+                if (*cell.  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
+                if (*cell.uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
+                if (*cell.color_bitfield)       layer_to_delete = Min(layer_to_delete, SUL_COLOR);
+            }
+        }
+
+
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                if (!cell.ui->is_selected) continue;
+
+                bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
+                bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
+                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+
+                switch (layer_to_delete) {
+                case SUL_DIGIT: {
+                    if (slot_is_modifiable) {
+                        Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
+                    }
+                } break;
+                case SUL_CERTAIN:   { *cell.  certain      = 0; } break;
+                case SUL_UNCERTAIN: { *cell.uncertain      = 0; } break;
+                case SUL_COLOR:     { *cell.color_bitfield = 0; } break;
+                }
+            }
+        }
+    }
+
+
+    ////////////////////////////////////////////////
+    //             Undo / Redo
+    ////////////////////////////////////////////////
+    if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku)) {
+        Array_Append(&context.sudoku->undo_buffer, context.sudoku->grid);
+        context.sudoku->redo_count = 0;
+    }
+
+
+
+    ////////////////////////////////////////////////
+    //             draw sudoku grid
+    ////////////////////////////////////////////////
+    for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+        for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+            Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
+            Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
+
+
+            { // draw color shading / cell background
+                Int_Array color_bits = ZEROED;
+                color_bits.allocator = context.scratch;
+
+                #define MAX_BITS_SET    (sizeof(*cell.color_bitfield)*8)
+                static_assert(Array_Len(context.theme.sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
+
+                // loop over all bits, and get the index's of the colors.
+                for (u32 k = 0; k < MAX_BITS_SET; k++) {
+                    if (*cell.color_bitfield & (1 << k)) Array_Append(&color_bits, k);
+                }
+
+
+                // were always gonna draw the cell background, because some cell colors are transparent.
+                DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_background);
+
+                if (color_bits.count == 0) {
+                    // do nothing.
+                } else if (color_bits.count == 1) {
+                    // a very obvious special case. only one color
+                    DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_color_bitfield[color_bits.items[0]]);
+                } else {
+
+                    //
+                    // We're going to split the cell into sections, and paint them with
+                    // the colors the user selected in the bit mask,
+                    //
+                    // first generate points arond a circle, place them in the middle of the cell,
+                    // then extend them until there past the edge of the rectangle,
+                    // create a line between the middle and that point,
+                    //
+                    // find the point and line on the rectangle that intersects it,
+                    // fint the intersection with the next point, in the list,
+                    // turns that section into a bunch of triangles and render it.
+                    //
+                    Vector2 points[MAX_BITS_SET];
+                    u32 points_count = color_bits.count;
+
+                    // NOTE this option will always case lag, because its
+                    // turning off and on again in such quick succsesstion,
+                    //
+                    // these gards will help, but if every cell has colors will still slow down.
+                    if (context.debug_draw_color_points) BeginTextureMode(context.debug_texture);
+                    for (u32 point_index = 0; point_index < points_count; point_index++) {
+                        f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
+                        f32 percent = (f32)point_index / (f32)points_count;
+
+                        // -percent makes the points be done in clockwise order.
+                        //
+                        // * SUDOKU_CELL_SIZE means that the points are garenteed to be outside the cell.
+                        // (but thay could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
+                        points[point_index].x = sinf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
+                        points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
+
+                        if (context.debug_draw_color_points) {
+                            Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                            DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
+                        }
+                    }
+                    if (context.debug_draw_color_points) EndTextureMode();
+
+
+                    Vector2 middle = {SUDOKU_CELL_SIZE/2, SUDOKU_CELL_SIZE/2};
+
+                    Line *rectangle_lines = RectangleToLines((Rectangle){0, 0, SUDOKU_CELL_SIZE, SUDOKU_CELL_SIZE});
+                    u32 rectangle_line_index = 0;
+                    for (u32 point_index = 0; point_index < points_count; point_index++) {
+                        Vector2 fan_points[8] = {middle};
+                        u32 fan_points_count = 1;
+
+                        Vector2 point = points[point_index];
+                        Line line_checking = {.start = middle, .end = point};
+
+                        bool seen_start = false;
+                        bool seen_end   = false;
+
+
+                        // 4 + 1 means we have to check the top edge of the rec again, could probablty
+                        // restructure this loop so we dont have to check everty edge every time but what ever.
+                        while (rectangle_line_index < 4 + 1) {
+                            Line rec_line = rectangle_lines[rectangle_line_index % 4];
+
+                            Vector2 hit_loc;
+                            bool hit = CheckCollisionLinesL(line_checking, rec_line, &hit_loc);
+                            if (!hit) {
+                                if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner of the rectangle.
+                                rectangle_line_index += 1;
+                                continue;
+                            }
+
+                            if (!seen_start) {
+                                seen_start = true;
+                                fan_points[fan_points_count++] = hit_loc;
+                                line_checking = (Line){.start = middle, .end = points[(point_index+1) % points_count]};
+                                continue;
+                            } else {
+                                seen_end = true;
+                                fan_points[fan_points_count++] = hit_loc;
+                                break;
+                            }
+
+                        }
+
+                        ASSERT(seen_start && seen_end);
+                        ASSERT(fan_points_count <= 5);
+
+                        Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                        for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
+                            fan_points[fan_index].x += cell_bounds.x;
+                            fan_points[fan_index].y += cell_bounds.y;
+                        }
+                        DrawTrianglesFromStartPoint(fan_points, fan_points_count, color);
+                    }
+
+                }
+            }
+
+
+
+
+            { // draw cell surrounding frame
+                Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+                DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, context.theme.sudoku.cell_lines);
+            }
+
+
+            if (*cell.digit != NO_DIGIT_PLACED) {
+                // draw placed digit
+
+                // TODO do it smart
+                // char buf[2] = ZEROED;
+                // DrawTextCodepoint();
+                const char *text = TextFormat("%d", *cell.digit);
+
+                Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
+                Color text_color = *cell.digit_placed_in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
+
+                DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
+            } else {
+                // draw uncertain and certain digits
+                Int_Array uncertain_numbers = { .allocator = context.scratch };
+                Int_Array certain_numbers   = { .allocator = context.scratch };
+
+                for (u8 k = 0; k <= 9; k++) {
+                    if (*cell.uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
+                    if (*cell.  certain & (1 << k)) Array_Append(&  certain_numbers, k);
+                }
+
+
+                // draw uncertain numbers around the edge of the box
+                if (uncertain_numbers.count) {
+                    ASSERT(uncertain_numbers.count <= Array_Len(MARKING_LOCATIONS));
+                    Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE_UNCERTAIN); // what matters more? speed or binding energy?
+                    for (u32 k = 0; k < uncertain_numbers.count; k++) {
+                        // TODO do it smarter like above.
+                        const char *text = TextFormat("%d", uncertain_numbers.items[k]);
+
+                        Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
+                        text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
+                        DrawTextCentered(font_and_size, text, text_pos, context.theme.sudoku.cell_font_color_for_uncerten);
+                    }
+                }
+
+
+                // draw small certain numbers in the middle of the box
+                if (certain_numbers.count) {
+                    ASSERT(certain_numbers.count <= SUDOKU_MAX_MARKINGS);
+
+                    char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
+                    for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
+
+                    s32 font_size = FONT_SIZE_MARKING_CERTAIN_MAX_SIZE;
+                    if (certain_numbers.count > MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING) {
+                        font_size = Remap(
+                            certain_numbers.count,
+                            MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING, SUDOKU_MAX_MARKINGS,
+                            FONT_SIZE_MARKING_CERTAIN_MAX_SIZE, FONT_SIZE_MARKING_CERTAIN_MIN_SIZE
+                        );
+                    }
+
+                    Vector2 text_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
+                    DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, context.theme.sudoku.cell_font_color_for_certen);
+                }
+            }
+
+
+            // hovering
+            if (cell.ui->is_hovering_over) {
+                f32 factor = !cell.ui->is_selected ? 0.2 : 0.05; // make it lighter when it is selected.
+                Color color = Fade(BLACK, factor); // cool trick // @Color
+
+                // NOTE this code is not with the selection code because
+                // it feels better when it acts immediately.
+                DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), color);
+            }
+        }
+    }
+
+
+    { // do selected animation
+        // how long it takes to go though one animation
+        const f64 animation_speed_in_seconds = 0.2;
+
+        f64 animation_speed = 1 / animation_speed_in_seconds;
+
+
+        local_persist bool debug_slow_down_animation = false;
+        toggle_when_pressed(&debug_slow_down_animation, KEY_F5);
+        if (debug_slow_down_animation) animation_speed = 0.1;
+
+
+        #define Square(x) ((x)*(x))
+
+        // speed up the animation the more elements tere, are. to try and catch up
+        animation_speed *= Square(context.selection_animation_array.count);
+        f64 dt = input->time.dt * animation_speed;
+
+        while (context.selection_animation_array.count > 0) {
+            Selected_Animation *animation = &context.selection_animation_array.items[0];
+            animation->t_animation += dt;
+
+            if (animation->t_animation >= 1) {
+                dt = animation->t_animation - 1;
+                Array_Remove(&context.selection_animation_array, 0, 1);
+            } else {
+                break;
+            }
+        }
+
+
+        Selected_Animation *animation = NULL;
+        if (context.selection_animation_array.count > 0) {
+            animation = &context.selection_animation_array.items[0];
+        }
+
+        draw_sudoku_selection(context.sudoku, animation);
+    }
+
+
+
+    {
+        // Lines that seperate the Boxes
+        for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
+                Rectangle ul_box = get_cell_bounds(context.sudoku, i*3,     j*3    );
+                Rectangle dr_box = get_cell_bounds(context.sudoku, i*3 + 2, j*3 + 2);
+
+                Rectangle region_box = {
+                    ul_box.x,
+                    ul_box.y,
+                    (dr_box.x + dr_box.width ) - ul_box.x,
+                    (dr_box.y + dr_box.height) - ul_box.y,
+                };
+
+                DrawRectangleFrameRec(
+                    GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2),
+                    SUDOKU_CELL_BOARDER_LINE_THICKNESS,
+                    context.theme.sudoku.box_lines
+                );
+            }
+        }
+
+        { // this outer box hits 1 extra pixel.
+            Rectangle ul_box = get_cell_bounds(context.sudoku, 0, 0);
+            Rectangle dr_box = get_cell_bounds(context.sudoku, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
+
+            Rectangle region_box = {
+                ul_box.x,
+                ul_box.y,
+                (dr_box.x + dr_box.width ) - ul_box.x,
+                (dr_box.y + dr_box.height) - ul_box.y,
+            };
+
+            DrawRectangleFrameRec(
+                GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS),
+                SUDOKU_CELL_BOARDER_LINE_THICKNESS,
+                context.theme.sudoku.box_lines
+            );
+        }
+    }
+
+
+
+    // draw logged messages.
+    draw_logger_frame(10, 40);
+
+    // draw the debug stuff.
+    DrawTextureRightsideUp(context.debug_texture.texture, 0, 0);
+
+    EndDrawing();
+}
+
 
 
 

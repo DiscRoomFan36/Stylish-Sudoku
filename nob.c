@@ -89,7 +89,7 @@ bool build_wasm(void) {
     cmd_append(&cmd, "-L.", RAYLIB_FOLDER"src/libraylib.a");    // Library path to look for additional library .a files (if required)
 
     cmd_append(&cmd, "-s", "USE_GLFW=3");                       // We tell the linker that the game/library uses GLFW3 library internally, it must be linked automatically (emscripten provides the implementation)
-    cmd_append(&cmd, "-s", "ASYNCIFY");                         // Add this flag ONLY in case we are using ASYNCIFY code
+    // cmd_append(&cmd, "-s", "ASYNCIFY");                         // Add this flag ONLY in case we are using ASYNCIFY code
 
     cmd_append(&cmd, "--shell-file", THIRDPARTY_FOLDER"shell.html");            // All webs need a "shell" structure to load and run the game, by default emscripten has a `shell.html` but we can provide our own
 
@@ -154,7 +154,7 @@ int main(int argc, char **argv) {
     // if (!build_release())   return 1;
 
 
-    // if (!build_wasm()) return 1;
+    if (!build_wasm()) return 1;
 
     return 0;
 }
