@@ -52,6 +52,10 @@ typedef struct {
 ////////////////////////////////////////////////////////////////////////////////
 
 
+// sqaure for now, change when adding a control pannel.
+#define INITAL_WINDOW_WIDTH         (9*80)
+#define INITAL_WINDOW_HEIGHT        (9*80)
+
 
 // in pixels, 60 is highly divisible
 #define SUDOKU_CELL_SIZE                    60
@@ -179,6 +183,9 @@ typedef struct {
     Sudoku *sudoku;
 
 
+    RenderTexture2D debug_texture;
+
+
     Theme theme;
 
 } Context;
@@ -200,10 +207,10 @@ internal Arena *Scratch_Get(void);
 internal void   Scratch_Release(Arena *scratch);
 
 
+
 void init_context(void) {
-    // sqaure for now, change when adding a control pannel.
-    context.window_width  =  9*80;
-    context.window_height =  9*80;
+    context.window_width  = GetScreenWidth();
+    context.window_height = GetScreenHeight();
 
 
     context.debug_draw_smaller_cell_hitbox  = false;
@@ -242,10 +249,23 @@ void init_context(void) {
     context.logged_messages_to_display  .allocator = Pool_Get(&context.pool);
 
 
+
     // make sure that load_sudoku(), respects this alloctor
     context.sudoku = &context.sudoku_base;
     context.sudoku->undo_buffer.allocator = Pool_Get(&context.pool);
     Array_Reserve(&context.sudoku->undo_buffer, 512); // just give it some room.
+
+
+    // the perhaps better option would be to make DebugDraw## versions of the draw
+    // functions that buffer the commands until later, but that would require
+    // making a bunch of extra functions...
+    //
+    // another option would be to somehow draw rectangles with depth,
+    // and make debug stuff the most important.
+    context.debug_texture = LoadRenderTexture(context.window_width, context.window_height);
+
+#define DebugDraw(draw_call) do { BeginTextureMode(context.debug_texture); (draw_call);  EndTextureMode(); } while (0)
+
 
 
 
@@ -319,16 +339,17 @@ void init_context(void) {
 
         const Color pallet_error = rgb(255, 55, 0);
 
-        context.theme.logger.text_color         = pallet_4; // @Color
-        context.theme.logger.error_text_color   = pallet_error;   // @Color
+        context.theme.logger.text_color         = pallet_4;
+        context.theme.logger.error_text_color   = pallet_error;
 
-        context.theme.logger.box_background     = pallet_3; // @Color
-        context.theme.logger.box_frame_color    = pallet_5; // @Color
+        context.theme.logger.box_background     = pallet_3;
+        context.theme.logger.box_frame_color    = pallet_5;
     }
 
 }
 void uninit_context(void) {
     Pool_Free_Arenas(&context.pool);
+    UnloadRenderTexture(context.debug_texture);
 }
 
 
@@ -359,32 +380,23 @@ internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKe
 
 const char *autosave_path = "./build/autosave.sudoku";
 
+void do_one_frame(void);
+void do_one_frame() {
+}
+
 int main(void) {
-    init_context();
-
-
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);  // the context contains the window width/height, and stuff updates dynamically.
     SetTraceLogLevel(LOG_WARNING);          // only show warning or worse logs, the console is being spammed in LOG_INFO mode.
-    InitWindow(context.window_width, context.window_height, "Sudoku");
+    InitWindow(INITAL_WINDOW_WIDTH, INITAL_WINDOW_HEIGHT, "Sudoku");
     SetTargetFPS(60);                       // probably could hit 144fps, but maybe later.
 
 
+    init_context();
 
     // this is my own font system, the functions mimic raylibs style.
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
     // this is my own sound system, the functions *DO NOT* mimic raylibs style.
     init_sounds();
-
-    // the perhaps better option would be to make DebugDraw## versions of the draw
-    // functions that buffer the commands until later, but that would require
-    // making a bunch of extra functions...
-    //
-    // another option would be to somehow draw rectangles with depth,
-    // and make debug stuff the most important.
-    RenderTexture2D debug_texture = LoadRenderTexture(context.window_width, context.window_height);
-
-#define DebugDraw(draw_call) do { BeginTextureMode(debug_texture); (draw_call);  EndTextureMode(); } while (0)
-
 
 
     { // load the autosave.
@@ -430,8 +442,8 @@ int main(void) {
             context.window_height   = GetScreenHeight();
 
             if (prev_window_width != context.window_width || prev_window_height != context.window_height) {
-                UnloadRenderTexture(debug_texture);
-                debug_texture = LoadRenderTexture(context.window_width, context.window_height);
+                UnloadRenderTexture(context.debug_texture);
+                context.debug_texture = LoadRenderTexture(context.window_width, context.window_height);
             }
         }
 
@@ -614,7 +626,7 @@ int main(void) {
 
             // NOTE this begin/end TextureMode stuff is because if it was inside
             // this 9*9 loop, it drags the fps down to 30.
-            if (context.debug_draw_smaller_cell_hitbox) BeginTextureMode(debug_texture);
+            if (context.debug_draw_smaller_cell_hitbox) BeginTextureMode(context.debug_texture);
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                     Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
@@ -884,7 +896,7 @@ int main(void) {
                         // turning off and on again in such quick succsesstion,
                         //
                         // these gards will help, but if every cell has colors will still slow down.
-                        if (context.debug_draw_color_points) BeginTextureMode(debug_texture);
+                        if (context.debug_draw_color_points) BeginTextureMode(context.debug_texture);
                         for (u32 point_index = 0; point_index < points_count; point_index++) {
                             f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
                             f32 percent = (f32)point_index / (f32)points_count;
@@ -1129,7 +1141,7 @@ int main(void) {
         draw_logger_frame(10, 40);
 
         // draw the debug stuff.
-        DrawTextureRightsideUp(debug_texture.texture, 0, 0);
+        DrawTextureRightsideUp(context.debug_texture.texture, 0, 0);
 
         EndDrawing();
     }
@@ -1141,12 +1153,11 @@ int main(void) {
     }
 
     uninit_sounds();
-    UnloadRenderTexture(debug_texture);
     UnloadDynamicFonts();
 
-    CloseWindow();
-
     uninit_context();
+
+    CloseWindow();
 
     return result ? 0 : 1;
 }
