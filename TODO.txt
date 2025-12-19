@@ -3,6 +3,8 @@
 
 
 USEABILITY:
+    - change the colors of digits if it breaks the rules of sudoku.
+
     - some way to load different sudoku's (maybe store them in a folder and have a file brower)
 
     - add other formes of marking. like renban line (aka just lines.)

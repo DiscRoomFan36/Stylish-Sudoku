@@ -34,6 +34,16 @@ typedef struct {
     s64 *items;
 } Int_Array;
 
+// returns -1 if its not in the array
+internal s64 index_in_array(Int_Array *array, s64 to_find) {
+    for (u64 i = 0; i < array->count; i++) {
+        if (array->items[i] == to_find)    return i;
+    }
+    return -1;
+}
+
+
+
 typedef struct {
     _Array_Header_;
     Vector2 *items;
@@ -91,6 +101,10 @@ typedef struct {
         Color cell_font_color_for_certen;
         // for uncerten markings.
         Color cell_font_color_for_uncerten;
+
+        // for placed in solve mode,
+        Color cell_digit_is_invalid;
+
 
         // turn "nth bit set" into a color
         Color cell_color_bitfield[32];
@@ -287,6 +301,7 @@ void init_context(void) {
         const Color pallet_5 = rgb(65, 72, 51);
 
         const Color pallet_select = rgb(0, 162, 255);
+        const Color pallet_error = rgb(255, 55, 0);
 
         context.theme.background = pallet_3;
 
@@ -298,6 +313,9 @@ void init_context(void) {
         context.theme.sudoku.cell_font_color_for_marking    = pallet_select;
         context.theme.sudoku.cell_font_color_for_certen     = pallet_select;
         context.theme.sudoku.cell_font_color_for_uncerten   = pallet_select;
+
+        context.theme.sudoku.cell_digit_is_invalid          = pallet_error;
+        // context.theme.sudoku.cell_digit_is_invalid          = pallet_error;
 
 
         {
@@ -342,8 +360,6 @@ void init_context(void) {
         }
 
         context.theme.select_highlight = pallet_select;
-
-        const Color pallet_error = rgb(255, 55, 0);
 
         context.theme.logger.text_color         = pallet_4;
         context.theme.logger.error_text_color   = pallet_error;
@@ -877,7 +893,7 @@ void do_one_frame() {
 
 
     ////////////////////////////////////////////////
-    //             Undo / Redo
+    //                Undo / Redo
     ////////////////////////////////////////////////
     if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku)) {
         Array_Append(&context.sudoku->undo_buffer, context.sudoku->grid);
@@ -885,6 +901,86 @@ void do_one_frame() {
     }
 
 
+    ////////////////////////////////////////////////
+    //               Sudoku Logic
+    ////////////////////////////////////////////////
+    // here we search for and check if the current digits/markings are
+    // invalid by sudoku logic, and if they are, draw them red or something.
+
+    // these arrays hold all the invalid digits for that cell.
+    //
+    // NOTE this array only needs to be as long as the max number of digits
+    // that can be placed in a sudoku grid, however, this is C, it dose
+    // not have slices. no further explantion needed.
+    //
+    // TODO where do we put this?
+    Int_Array invalid_digits_array_grid[SUDOKU_SIZE][SUDOKU_SIZE] = ZEROED;
+    {
+        for (u32 j = 0; j < SUDOKU_SIZE; j++) {
+            for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+                Int_Array *invalid_digits_array = &invalid_digits_array_grid[j][i];
+
+                // use the scratch allocator.
+                invalid_digits_array->allocator = context.scratch;
+
+                { // search in the current box
+                    static_assert(SUDOKU_SIZE == 9, "3 is 1/3 of SUDOKU_SIZE (witch is 9)");
+                    u32 group_start_x = (i / 3) * 3;
+                    u32 group_start_y = (j / 3) * 3;
+                    for (u32 k = 0; k < 3; k++) {
+                        for (u32 l = 0; l < 3; l++) {
+                            u32 group_index_x = group_start_x + l;
+                            u32 group_index_y = group_start_y + k;
+                            // dont check yourself.
+                            if (group_index_x == i && group_index_y == j) continue;
+
+                            Sudoku_Cell cell = get_cell(context.sudoku, group_index_x, group_index_y);
+                            // @Copypasta, but thats just C, being C
+                            if (*cell.digit != NO_DIGIT_PLACED) {
+                                if (index_in_array(invalid_digits_array, *cell.digit) == -1) {
+                                    // if its not NO_DIGIT_PLACED, and its not in the
+                                    // array allready, add it to the invalid_digits_array
+                                    Array_Append(invalid_digits_array, *cell.digit);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // (search in the collum) && (search in the row)
+                //
+                // note. this double searches the things in its box.
+                // but thats ok because we de-duplicate.
+                for (u32 k = 0; k < SUDOKU_SIZE; k++) {
+                    // row
+                    if (k != i) {
+                        Sudoku_Cell cell = get_cell(context.sudoku, k, j);
+                        // @Copypasta, but thats just C, being C
+                        if (*cell.digit != NO_DIGIT_PLACED) {
+                            if (index_in_array(invalid_digits_array, *cell.digit) == -1) {
+                                // if its not NO_DIGIT_PLACED, and its not in the
+                                // array allready, add it to the invalid_digits_array
+                                Array_Append(invalid_digits_array, *cell.digit);
+                            }
+                        }
+                    }
+                    // collum
+                    if (k != j) {
+                        Sudoku_Cell cell = get_cell(context.sudoku, i, k);
+                        // @Copypasta, but thats just C, being C
+                        if (*cell.digit != NO_DIGIT_PLACED) {
+                            if (index_in_array(invalid_digits_array, *cell.digit) == -1) {
+                                // if its not NO_DIGIT_PLACED, and its not in the
+                                // array allready, add it to the invalid_digits_array
+                                Array_Append(invalid_digits_array, *cell.digit);
+                            }
+                        }
+                    }
+                }
+
+            }
+        }
+    }
 
     ////////////////////////////////////////////////
     //             draw sudoku grid
@@ -893,6 +989,7 @@ void do_one_frame() {
         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
             Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
             Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
+            Int_Array *invalid_digits_array = &invalid_digits_array_grid[j][i];
 
 
             { // draw color shading / cell background
@@ -1030,7 +1127,20 @@ void do_one_frame() {
                 const char *text = TextFormat("%d", *cell.digit);
 
                 Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
+
                 Color text_color = *cell.digit_placed_in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
+                if (*cell.digit_placed_in_solve_mode) {
+                    text_color = context.theme.sudoku.cell_font_color_for_marking;
+                }
+                // if the digit is invalid.
+                if (index_in_array(invalid_digits_array, *cell.digit) != -1) {
+                    if (*cell.digit_placed_in_solve_mode) {
+                        text_color = context.theme.sudoku.cell_digit_is_invalid;
+                    } else {
+                        // TODO
+                    }
+                }
+
 
                 DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
             } else {
