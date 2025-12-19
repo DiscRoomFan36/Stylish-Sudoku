@@ -66,10 +66,11 @@ bool build_release(void) {
     return true;
 }
 
+
 bool build_wasm(void) {
 
-// focus wanst useing my .bashrc, so i had to provide this directly.
-#define EMCC_PATH "/home/fletcher/Thridparty/emsdk/upstream/emscripten/emcc"
+    // focus wanst useing my .bashrc, so i had to provide this directly.
+    #define EMCC_PATH "/home/fletcher/Thridparty/emsdk/upstream/emscripten/emcc"
 
     mkdir_if_not_exists(BUILD_FOLDER"web/");
 
@@ -89,12 +90,10 @@ bool build_wasm(void) {
     cmd_append(&cmd, "-L.", RAYLIB_FOLDER"src/libraylib.a");    // Library path to look for additional library .a files (if required)
 
     cmd_append(&cmd, "-s", "USE_GLFW=3");                       // We tell the linker that the game/library uses GLFW3 library internally, it must be linked automatically (emscripten provides the implementation)
-    // cmd_append(&cmd, "-s", "ASYNCIFY");                         // Add this flag ONLY in case we are using ASYNCIFY code
 
     cmd_append(&cmd, "--shell-file", THIRDPARTY_FOLDER"shell.html");            // All webs need a "shell" structure to load and run the game, by default emscripten has a `shell.html` but we can provide our own
 
     cmd_append(&cmd, "-DPLATFORM_WEB");
-
 
 
     cmd_append(&cmd, "--preload-file", "./assets/");        // Specify a resources directory for data compilation (it will generate a .data file)
@@ -104,36 +103,11 @@ bool build_wasm(void) {
     cmd_append(&cmd, "-s", "ASSERTIONS=1");                 // Enable runtime checks for common memory allocation errors (-O1 and above turn it off)
 
 
-
-
     if (!cmd_run(&cmd)) return false;
 
     return true;
 }
 
-
-// bool build_wasm(void) {
-//     cmd_append(&cmd, "clang");
-//     cmd_append(&cmd, "--target=wasm32");
-
-//     cmd_append(&cmd, "-I.", RAYLIB_FOLDER"src/raylib.h");
-//     cmd_append(&cmd, "-I"THIRDPARTY_FOLDER);
-
-//     cmd_append(&cmd, "--no-standard-libraries");
-//     cmd_append(&cmd, "-Wl,export-table");
-//     cmd_append(&cmd, "-Wl,--no-entry");
-//     cmd_append(&cmd, "-Wl,--allow-undefinded");
-//     cmd_append(&cmd, "-Wl,--export=main");
-
-//     cmd_append(&cmd, "-o", BUILD_FOLDER"sudoku.wasm");
-//     cmd_append(&cmd, SRC_FOLDER"main.c");
-
-//     cmd_append(&cmd, "-DPLATFORM_WEB");
-
-//     if (!cmd_run(&cmd)) return false;
-
-//     return true;
-// }
 
 int main(int argc, char **argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
@@ -154,7 +128,7 @@ int main(int argc, char **argv) {
     // if (!build_release())   return 1;
 
 
-    if (!build_wasm()) return 1;
+    // if (!build_wasm()) return 1;
 
     return 0;
 }
