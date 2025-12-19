@@ -590,6 +590,7 @@ void do_one_frame() {
     ////////////////////////////////
 
     if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
+        play_sound("undo_undo");
         if (context.sudoku->undo_buffer.count > 1) {
             context.sudoku->undo_buffer.count   -= 1;
             context.sudoku->redo_count          += 1;
@@ -599,6 +600,7 @@ void do_one_frame() {
 
     // TODO cntl-x should be cut, but we dont have that yet.
     if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
+        play_sound("undo_redo");
         if (context.sudoku->redo_count > 0) {
             context.sudoku->undo_buffer.count   += 1;
             context.sudoku->redo_count          -= 1;
@@ -737,6 +739,7 @@ void do_one_frame() {
             }
 
             if (selected_changed) {
+                play_sound("selection_changed");
                 Selected_Animation new_animation = {
                     .t_animation   = 0,
                     .prev_ui_state = previous_ui,
