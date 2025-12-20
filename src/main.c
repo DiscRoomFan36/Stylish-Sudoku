@@ -18,14 +18,6 @@
 #include "raylib_helpers.c"
 
 
-#include "sudoku_grid.h"
-#include "sound.h"
-#include "input.h"
-#include "logging.h"
-
-// for 'draw_sudoku_selection()'
-#include "sudoku_draw_selection.h"
-
 
 
 
@@ -51,11 +43,27 @@ typedef struct {
 
 
 
+
+
+#include "sudoku_grid.h"
+#include "sound.h"
+#include "input.h"
+#include "logging.h"
+
+// for 'draw_sudoku_selection()'
+#include "sudoku_draw_selection.h"
+
+
+
+
+
+// funny functions, display the color they represent in VSCode.
+//
+// is the reason I use VSCode to edit colors,
+//
+// even though this feature is because of CSS, (i presume,)
+// its super helpful to have a color picker in your editor.
 #define rgba(_r, _g, _b, _a) ( (Color){.r = (_r), .g = (_g), .b = (_b), .a = (_a*255) + 0.5} )
-// Color rgba(u8 r, u8 g, u8 b, f32 a) {
-//     s32 alpha = (Clamp(a, 0, 1) * 255) + 0.5;
-//     return (Color){ .r = r, .g = g, .b = b, .a = alpha };
-// }
 #define rgb(r, g, b) rgba((r), (g), (b), 1)
 
 
@@ -84,7 +92,10 @@ static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 8)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
 
 
-// could also be known as theme.
+// the Theme or Pallet.
+//
+// this makes it easy to change the theme in the future.
+// just update this struct and the rest of the program will follow suit.
 typedef struct {
     Color background;
 
@@ -94,17 +105,17 @@ typedef struct {
         Color cell_lines;
         Color box_lines;
 
-        Color cell_digit_font_color;
-        // for the placed_in_solve_mode digits
-        Color cell_font_color_for_marking;
-        // for certen markings
-        Color cell_font_color_for_certen;
-        // for uncerten markings.
-        Color cell_font_color_for_uncerten;
+        struct {
+            Color   valid_builder;
+            Color   valid_solver;
+            Color invalid_builder;
+            Color invalid_solver;
 
-        // for placed in solve mode,
-        Color cell_digit_is_invalid;
-
+            Color   valid_marking_certen;
+            Color   valid_marking_uncerten;
+            Color invalid_marking_certen;
+            Color invalid_marking_uncerten;
+        } cell_text;
 
         // turn "nth bit set" into a color
         Color cell_color_bitfield[32];
@@ -309,13 +320,16 @@ void init_context(void) {
         context.theme.sudoku.cell_lines         = pallet_4;
         context.theme.sudoku.box_lines          = pallet_5;
 
-        context.theme.sudoku.cell_digit_font_color          = pallet_5;
-        context.theme.sudoku.cell_font_color_for_marking    = pallet_select;
-        context.theme.sudoku.cell_font_color_for_certen     = pallet_select;
-        context.theme.sudoku.cell_font_color_for_uncerten   = pallet_select;
 
-        context.theme.sudoku.cell_digit_is_invalid          = pallet_error;
-        // context.theme.sudoku.cell_digit_is_invalid          = pallet_error;
+        context.theme.sudoku.cell_text.  valid_builder           = pallet_5;
+        context.theme.sudoku.cell_text.  valid_solver            = pallet_select;
+        context.theme.sudoku.cell_text.  valid_marking_certen    = pallet_select;
+        context.theme.sudoku.cell_text.  valid_marking_uncerten  = pallet_select;
+
+        context.theme.sudoku.cell_text.invalid_builder           = pallet_5; // TODO make this striped
+        context.theme.sudoku.cell_text.invalid_solver            = pallet_error;
+        context.theme.sudoku.cell_text.invalid_marking_certen    = pallet_error;
+        context.theme.sudoku.cell_text.invalid_marking_uncerten  = pallet_error;
 
 
         {
@@ -528,8 +542,16 @@ void do_one_frame() {
     {
         toggle_when_pressed(&in_solve_mode, KEY_B);
 
-        const char *text = in_solve_mode ? "SOLVE"              : "BUILD";
-        Color text_color = in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
+        const char *text;
+        Color text_color;
+        if (!in_solve_mode) {
+            text       = "BUILD";
+            text_color = context.theme.sudoku.cell_text.valid_builder; // color is the same as the average text.
+        } else {
+            text       = "SOLVE";
+            text_color = context.theme.sudoku.cell_text.valid_solver;  // color is the same as the average text.
+        }
+
         Vector2 text_pos = { context.window_width/2, 10 + FONT_SIZE/2 };
         DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
     }
@@ -904,22 +926,21 @@ void do_one_frame() {
     ////////////////////////////////////////////////
     //               Sudoku Logic
     ////////////////////////////////////////////////
-    // here we search for and check if the current digits/markings are
-    // invalid by sudoku logic, and if they are, draw them red or something.
-
-    // these arrays hold all the invalid digits for that cell.
-    //
-    // NOTE this array only needs to be as long as the max number of digits
-    // that can be placed in a sudoku grid, however, this is C, it dose
-    // not have slices. no further explantion needed.
-    //
-    // TODO where do we put this?
-    Int_Array invalid_digits_array_grid[SUDOKU_SIZE][SUDOKU_SIZE] = ZEROED;
     {
+        // here we search for and check if the current digits/markings are
+        // invalid by sudoku logic, and if they are, draw them red or something.
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Int_Array *invalid_digits_array = &invalid_digits_array_grid[j][i];
+                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
 
+                // these arrays hold all the invalid digits for that cell.
+                //
+                // NOTE this array only needs to be as long as the max number of digits
+                // that can be placed in a sudoku grid, however, this is C, it dose
+                // not have slices. no further explantion needed.
+                Int_Array *invalid_digits_array = &cell.ui->invalid_digits_array;
+
+                Mem_Zero(invalid_digits_array, sizeof(*invalid_digits_array));
                 // use the scratch allocator.
                 invalid_digits_array->allocator = context.scratch;
 
@@ -934,13 +955,13 @@ void do_one_frame() {
                             // dont check yourself.
                             if (group_index_x == i && group_index_y == j) continue;
 
-                            Sudoku_Cell cell = get_cell(context.sudoku, group_index_x, group_index_y);
+                            Sudoku_Cell other_cell = get_cell(context.sudoku, group_index_x, group_index_y);
                             // @Copypasta, but thats just C, being C
-                            if (*cell.digit != NO_DIGIT_PLACED) {
-                                if (index_in_array(invalid_digits_array, *cell.digit) == -1) {
+                            if (*other_cell.digit != NO_DIGIT_PLACED) {
+                                if (index_in_array(invalid_digits_array, *other_cell.digit) == -1) {
                                     // if its not NO_DIGIT_PLACED, and its not in the
                                     // array allready, add it to the invalid_digits_array
-                                    Array_Append(invalid_digits_array, *cell.digit);
+                                    Array_Append(invalid_digits_array, *other_cell.digit);
                                 }
                             }
                         }
@@ -954,25 +975,25 @@ void do_one_frame() {
                 for (u32 k = 0; k < SUDOKU_SIZE; k++) {
                     // row
                     if (k != i) {
-                        Sudoku_Cell cell = get_cell(context.sudoku, k, j);
+                        Sudoku_Cell other_cell = get_cell(context.sudoku, k, j);
                         // @Copypasta, but thats just C, being C
-                        if (*cell.digit != NO_DIGIT_PLACED) {
-                            if (index_in_array(invalid_digits_array, *cell.digit) == -1) {
+                        if (*other_cell.digit != NO_DIGIT_PLACED) {
+                            if (index_in_array(invalid_digits_array, *other_cell.digit) == -1) {
                                 // if its not NO_DIGIT_PLACED, and its not in the
                                 // array allready, add it to the invalid_digits_array
-                                Array_Append(invalid_digits_array, *cell.digit);
+                                Array_Append(invalid_digits_array, *other_cell.digit);
                             }
                         }
                     }
                     // collum
                     if (k != j) {
-                        Sudoku_Cell cell = get_cell(context.sudoku, i, k);
+                        Sudoku_Cell other_cell = get_cell(context.sudoku, i, k);
                         // @Copypasta, but thats just C, being C
-                        if (*cell.digit != NO_DIGIT_PLACED) {
-                            if (index_in_array(invalid_digits_array, *cell.digit) == -1) {
+                        if (*other_cell.digit != NO_DIGIT_PLACED) {
+                            if (index_in_array(invalid_digits_array, *other_cell.digit) == -1) {
                                 // if its not NO_DIGIT_PLACED, and its not in the
                                 // array allready, add it to the invalid_digits_array
-                                Array_Append(invalid_digits_array, *cell.digit);
+                                Array_Append(invalid_digits_array, *other_cell.digit);
                             }
                         }
                     }
@@ -989,7 +1010,6 @@ void do_one_frame() {
         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
             Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
             Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
-            Int_Array *invalid_digits_array = &invalid_digits_array_grid[j][i];
 
 
             { // draw color shading / cell background
@@ -1111,12 +1131,14 @@ void do_one_frame() {
 
 
 
-
             { // draw cell surrounding frame
                 Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
                 DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, context.theme.sudoku.cell_lines);
             }
 
+
+            // moved this down here for binding energy.
+            Int_Array *invalid_digits_array = &cell.ui->invalid_digits_array;
 
             if (*cell.digit != NO_DIGIT_PLACED) {
                 // draw placed digit
@@ -1128,17 +1150,28 @@ void do_one_frame() {
 
                 Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
 
-                Color text_color = *cell.digit_placed_in_solve_mode ? context.theme.sudoku.cell_font_color_for_marking : context.theme.sudoku.cell_digit_font_color;
-                if (*cell.digit_placed_in_solve_mode) {
-                    text_color = context.theme.sudoku.cell_font_color_for_marking;
-                }
-                // if the digit is invalid.
-                if (index_in_array(invalid_digits_array, *cell.digit) != -1) {
-                    if (*cell.digit_placed_in_solve_mode) {
-                        text_color = context.theme.sudoku.cell_digit_is_invalid;
-                    } else {
-                        // TODO
-                    }
+                bool is_an_invalid_digit = (index_in_array(invalid_digits_array, *cell.digit) != -1);
+                bool placed_in_solve_mode = *cell.digit_placed_in_solve_mode;
+
+                Color text_color;
+                if        (!is_an_invalid_digit && !placed_in_solve_mode) {
+                    // normal builder digit
+                    text_color = context.theme.sudoku.cell_text.  valid_builder;
+
+                } else if (!is_an_invalid_digit &&  placed_in_solve_mode) {
+                    // normal solver digit
+                    text_color = context.theme.sudoku.cell_text.  valid_solver;
+
+                } else if ( is_an_invalid_digit && !placed_in_solve_mode) {
+                    // invalid builder digit
+                    text_color = context.theme.sudoku.cell_text.invalid_builder;
+
+                } else if ( is_an_invalid_digit &&  placed_in_solve_mode) {
+                    // invalid solver digit
+                    text_color = context.theme.sudoku.cell_text.invalid_solver;
+
+                } else {
+                    UNREACHABLE();
                 }
 
 
@@ -1161,10 +1194,16 @@ void do_one_frame() {
                     for (u32 k = 0; k < uncertain_numbers.count; k++) {
                         // TODO do it smarter like above.
                         const char *text = TextFormat("%d", uncertain_numbers.items[k]);
+                        Color text_color;
+                        if (index_in_array(invalid_digits_array, uncertain_numbers.items[k]) == -1) {
+                            text_color = context.theme.sudoku.cell_text.  valid_marking_uncerten;
+                        } else {
+                            text_color = context.theme.sudoku.cell_text.invalid_marking_uncerten;
+                        }
 
                         Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
                         text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
-                        DrawTextCentered(font_and_size, text, text_pos, context.theme.sudoku.cell_font_color_for_uncerten);
+                        DrawTextCentered(font_and_size, text, text_pos, text_color);
                     }
                 }
 
@@ -1173,10 +1212,8 @@ void do_one_frame() {
                 if (certain_numbers.count) {
                     ASSERT(certain_numbers.count <= SUDOKU_MAX_MARKINGS);
 
-                    char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
-                    for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
-
                     s32 font_size = FONT_SIZE_MARKING_CERTAIN_MAX_SIZE;
+                    // the the number of certain numbers is two high, shrink the font size.
                     if (certain_numbers.count > MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING) {
                         font_size = Remap(
                             certain_numbers.count,
@@ -1184,9 +1221,40 @@ void do_one_frame() {
                             FONT_SIZE_MARKING_CERTAIN_MAX_SIZE, FONT_SIZE_MARKING_CERTAIN_MIN_SIZE
                         );
                     }
+                    Font_And_Size font_and_size = GetFontWithSize(font_size);
 
-                    Vector2 text_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-                    DrawTextCentered(GetFontWithSize(font_size), buf, text_pos, context.theme.sudoku.cell_font_color_for_certen);
+                    // get the length of the whole text.
+                    char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
+                    for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
+                    Vector2 total_text_size = MeasureTextEx(font_and_size.font, buf, font_and_size.size, 0);
+                    s32 total_text_length   = total_text_size.x;
+
+
+                    // draw the text one by one, so we can color
+                    // the text differently for sudoku logic reasons.
+                    Vector2 char_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2 - total_text_length/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 - total_text_size.y/2 };
+
+                    for (u32 k = 0; k < certain_numbers.count; k++) {
+                        s64 n = certain_numbers.items[k];
+                        char c = '0' + n;
+
+
+                        Color text_color;
+                        if (index_in_array(invalid_digits_array, n) == -1) {
+                            text_color = context.theme.sudoku.cell_text.  valid_marking_certen;
+                        } else {
+                            text_color = context.theme.sudoku.cell_text.invalid_marking_certen;
+                        }
+
+                        DrawTextCodepoint(font_and_size.font, c, char_pos, font_and_size.size, text_color);
+
+
+                        // find the corrospoding glyph for this char.
+                        GlyphInfo *g = get_glyph_info_for_char(font_and_size.font, c);
+                        ASSERT(g != NULL);
+
+                        char_pos.x += g->advanceX;
+                    }
                 }
             }
 
@@ -1194,7 +1262,7 @@ void do_one_frame() {
             // hovering
             if (cell.ui->is_hovering_over) {
                 f32 factor = !cell.ui->is_selected ? 0.2 : 0.05; // make it lighter when it is selected.
-                Color color = Fade(BLACK, factor); // cool trick // @Color
+                Color color = Fade(BLACK, factor); // cool trick // @Color?
 
                 // NOTE this code is not with the selection code because
                 // it feels better when it acts immediately.

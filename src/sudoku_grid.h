@@ -75,7 +75,8 @@ typedef struct {
     struct Sudoku_UI {
         bool is_selected;
         bool is_hovering_over;
-        // bool digit_is_invalid_by_sudoku_logic;
+        // all of the digits that are invalid by sudoku logic.
+        Int_Array invalid_digits_array;
     } grid[SUDOKU_SIZE][SUDOKU_SIZE];
 
 } Sudoku_UI_Grid;

@@ -180,6 +180,16 @@ internal void DrawTextCentered(Font_And_Size font_and_size, const char *text, Ve
 
 
 
+// might return null, TODO return '?' glyph
+internal GlyphInfo *get_glyph_info_for_char(Font font, char c) {
+    for (int l = 0; l < font.glyphCount; l++) {
+        GlyphInfo *g = &font.glyphs[l];
+        if (c == g->value) return g;
+    }
+    return NULL;
+}
+
+
 
 ////////////////////////////////////////
 //             Textures
