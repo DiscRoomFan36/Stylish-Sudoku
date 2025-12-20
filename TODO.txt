@@ -3,7 +3,8 @@
 
 
 USEABILITY:
-    - change the colors of digits if it breaks the rules of sudoku.
+    - make the web version useable, make the webpage show up on github
+    - make a README.md, add screenshots.
 
     - some way to load different sudoku's (maybe store them in a folder and have a file brower)
 
@@ -33,6 +34,7 @@ SOLVER:
 
 
 DONE:
+    - change the colors of digits if it breaks the rules of sudoku.
     - pick better colors for everything
     - there are still some animations that are not done and have a placeholder... (but its fine for now, would have to try much harder to get all the edge cases, i feel like theres some grafics programmer out there laughing at my code. I will find you.)
     - animate the selection process.
