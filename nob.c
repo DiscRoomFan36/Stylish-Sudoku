@@ -69,13 +69,13 @@ bool build_release(void) {
 
 bool build_wasm(void) {
 
-    // focus wanst useing my .bashrc, so i had to provide this directly.
-    #define EMCC_PATH "/home/fletcher/Thridparty/emsdk/upstream/emscripten/emcc"
+    // focus wasn't useing my .bashrc, so i had to provide this directly.
+    #define EMCC_PATH "/home/fletcher/Thirdparty/emsdk/upstream/emscripten/emcc"
 
     mkdir_if_not_exists(BUILD_FOLDER"web/");
 
     // emcc -o ./build/web/sudoku.html ./src/main.c -Os -Wall ./thirdparty/raylib-5.5/src/libraylib.a -I. -I./thirdparty/ -I./thirdparty/raylib-5.5/src/ -L. ./thirdparty/raylib-5.5/src/libraylib.a -s USE_GLFW=3 -s ASYNCIFY --shell-file ./thirdparty/shell.html -DPLATFORM_WEB
-    cmd_append(&cmd, EMCC_PATH);
+    cmd_append(&cmd, "emcc");
 
     cmd_append(&cmd, "-o", BUILD_FOLDER"web/sudoku.html");      // Output file, the .html extension determines the files that need to be generated: `.wasm`, `.js` (glue code) and `.html` (optional: `.data`). All files are already configured to just work.
     cmd_append(&cmd, SRC_FOLDER"main.c");                       // The input files for compilation, in this case just one but it could be multiple code files: `game.c screen_logo.c screen_title.c screen_gameplay.c`
