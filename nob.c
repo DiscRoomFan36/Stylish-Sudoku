@@ -10,12 +10,45 @@
 #define RAYLIB_FOLDER       THIRDPARTY_FOLDER"raylib-5.5/"
 
 
-bool check_if_file_exists(const char *filepath) {
-    return access(filepath, F_OK) == 0;
+
+static bool build_debug(void);
+static bool build_release(void);
+static bool build_wasm(void);
+
+
+static Cmd cmd = {0};
+
+
+int main(int argc, char **argv) {
+    NOB_GO_REBUILD_URSELF(argc, argv);
+
+
+    // TODO make this a command line arg
+    //
+    // this gets the latest version of Bested.h, I know that I might have to
+    // refactor stuff when i do this, but its worth it to me.
+    #define BESTED_PATH "/home/fletcher/Programming/C-things/Bested.h/Bested.h"
+    if (file_exists(BESTED_PATH) == 1) {
+        cmd_append(&cmd, "cp");
+        cmd_append(&cmd, BESTED_PATH);
+        cmd_append(&cmd, THIRDPARTY_FOLDER"Bested.h");
+        if (!cmd_run(&cmd)) return 1;
+    }
+
+    mkdir_if_not_exists(BUILD_FOLDER);
+
+    if (!build_debug())     return 1;
+    if (!build_release())   return 1;
+
+    if (!build_wasm()) return 1;
+
+    return 0;
 }
 
 
-Cmd cmd = {0};
+
+
+
 
 
 void cmd_cc(void) {
@@ -40,7 +73,7 @@ bool compile_raylib_library(const char *out_name, const char *platform) {
     const char *file_path = temp_sprintf("%s%s", BUILD_LIBRARIES_FOLDER, out_name);
 
     // do some caching.
-    if (check_if_file_exists(file_path)) {
+    if (file_exists(file_path) == 1) {
         return true;
     }
 
@@ -111,7 +144,6 @@ bool build_wasm(void) {
 
     mkdir_if_not_exists(BUILD_FOLDER"web/");
 
-    // emcc -o ./build/web/sudoku.html ./src/main.c -Os -Wall ./thirdparty/raylib-5.5/src/libraylib.a -I. -I./thirdparty/ -I./thirdparty/raylib-5.5/src/ -L. ./thirdparty/raylib-5.5/src/libraylib.a -s USE_GLFW=3 -s ASYNCIFY --shell-file ./thirdparty/shell.html -DPLATFORM_WEB
     cmd_append(&cmd, "emcc");
 
     cmd_append(&cmd, "-o", BUILD_FOLDER"web/sudoku.html");      // Output file, the .html extension determines the files that need to be generated: `.wasm`, `.js` (glue code) and `.html` (optional: `.data`). All files are already configured to just work.
@@ -121,10 +153,10 @@ bool build_wasm(void) {
     cmd_append(&cmd, "-Wno-initializer-overrides");
 
 
-    cmd_append(&cmd, RAYLIB_FOLDER"src/libraylib.a");           // This is the libraylib.a generated, it's recommended to provide it directly, with the path to it: i.e. `./raylib/src/libraylib.a`
+    cmd_append(&cmd, BUILD_LIBRARIES_FOLDER"libraylib_web.a");  // This is the libraylib.a generated, it's recommended to provide it directly, with the path to it: i.e. `./raylib/src/libraylib.a`
 
     cmd_append(&cmd, "-I.", "-I"THIRDPARTY_FOLDER, "-I"RAYLIB_FOLDER"src/");    // Include path to look for additional #include .h files (if required)
-    cmd_append(&cmd, "-L.", RAYLIB_FOLDER"src/libraylib.a");    // Library path to look for additional library .a files (if required)
+    // cmd_append(&cmd, "-L.", RAYLIB_FOLDER"src/libraylib.a");    // Library path to look for additional library .a files (if required)
 
     cmd_append(&cmd, "-s", "USE_GLFW=3");                       // We tell the linker that the game/library uses GLFW3 library internally, it must be linked automatically (emscripten provides the implementation)
 
@@ -146,26 +178,3 @@ bool build_wasm(void) {
 }
 
 
-int main(int argc, char **argv) {
-    NOB_GO_REBUILD_URSELF(argc, argv);
-
-
-    // TODO make this a command line arg
-    #define BESTED_PATH "/home/fletcher/Programming/C-things/Bested.h/Bested.h"
-    if (check_if_file_exists(BESTED_PATH)) {
-        cmd_append(&cmd, "cp");
-        cmd_append(&cmd, BESTED_PATH);
-        cmd_append(&cmd, THIRDPARTY_FOLDER"Bested.h");
-        if (!cmd_run(&cmd)) return 1;
-    }
-
-    mkdir_if_not_exists(BUILD_FOLDER);
-
-    if (!build_debug())     return 1;
-    if (!build_release())   return 1;
-
-
-    if (!build_wasm()) return 1;
-
-    return 0;
-}
