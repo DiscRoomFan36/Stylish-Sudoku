@@ -19,8 +19,116 @@ static bool build_wasm(void);
 static Cmd cmd = {0};
 
 
+
+#define ARGUMENTS                                               \
+    X(help,         "prints this help message and quits")       \
+    X(all,          "build all targets. [debug, release, wasm]")        \
+    X(clean,        "clean up all build artifacts, happens before all other commands, so 'all clean' will clean everything, then build everything.")        \
+    X(debug,        "build   debug native version")             \
+    X(release,      "build release native version")             \
+    X(wasm,         "build web page with Emscripten")           \
+    X(host_web_with_python3,        "build and use python3 to serve web build on port 8080")        \
+
+
+
+void print_usage(const char *program_name, bool to_stderr) {
+    FILE *out = to_stderr ? stderr : stdout;
+
+    fprintf(out, "USAGE %s: [...ARGUMENTS]\n", program_name);
+    fprintf(out, "[ARGUMENTS]:\n");
+    #define X(name, description)    fprintf(out, "%11s: %s\n", #name, description);
+        ARGUMENTS
+    #undef X
+}
+
 int main(int argc, char **argv) {
     NOB_GO_REBUILD_URSELF(argc, argv);
+
+    const char *program_name = argv[0];
+
+    // if no arguments provided, print help
+    if (argc == 1) {
+        print_usage(program_name, false);
+        exit(EXIT_SUCCESS);
+    }
+
+
+    // parse arguments
+
+    struct Flags {
+        // make flags for all arguments
+        #define X(name, ...) bool name;
+            ARGUMENTS
+        #undef X
+    } flags = {};
+
+    for (int i = 1; i < argc; i++) {
+        const char *arg = argv[i];
+        bool valid_flag = false;
+        bool duplicate_flag = false;
+
+        // check if the argument is this flag.
+        #define X(name, ...)                    \
+            if (strcmp(arg, #name) == 0) {      \
+                if (flags.name) duplicate_flag = true;     \
+                flags.name = true;             \
+                valid_flag  = true;             \
+            }
+            ARGUMENTS
+        #undef X
+
+        if (!valid_flag) {
+            fprintf(stderr, "ERROR: INVALID ARGUMENT - '%s' in ", arg);
+
+            fprintf(stderr, "[%s", program_name);
+            for (int j = 1; j < argc; j++) fprintf(stderr, " %s", argv[j]);
+            fprintf(stderr, "]\n");
+
+            print_usage(program_name, true);
+            exit(EXIT_FAILURE);
+        }
+        if (duplicate_flag) {
+            fprintf(stderr, "ERROR: DUPLICATE FLAG - '%s' in ", arg);
+
+            fprintf(stderr, "[%s", program_name);
+            for (int j = 1; j < argc; j++) fprintf(stderr, " %s", argv[j]);
+            fprintf(stderr, "]\n");
+
+            print_usage(program_name, true);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    if (flags.help) {
+        print_usage(program_name, false);
+        exit(EXIT_SUCCESS);
+    }
+
+
+    if (flags.all) {
+        flags.debug      = true;
+        flags.release    = true;
+        flags.wasm       = true;
+    }
+
+    if (flags.host_web_with_python3) {
+        flags.wasm = true;
+    }
+
+
+    if (flags.clean) {
+        cmd_append(&cmd, "rm", "-fr", BUILD_FOLDER);
+        if (!cmd_run(&cmd))             exit(EXIT_FAILURE);
+
+        // its ok to ignore the result, if nob.old did not exist, no reason to delete it.
+        delete_file("./nob.old");
+
+        // cleans the stuff in raylib (build artifacts)
+        cmd_append(&cmd, "make", "clean");
+        cmd_append(&cmd, "--directory="RAYLIB_FOLDER"src/");
+        if (!cmd_run(&cmd))             exit(EXIT_FAILURE);
+    }
+
 
 
     // TODO make this a command line arg
@@ -29,40 +137,46 @@ int main(int argc, char **argv) {
     // refactor stuff when i do this, but its worth it to me.
     #define BESTED_PATH "/home/fletcher/Programming/C-things/Bested.h/Bested.h"
     if (file_exists(BESTED_PATH) == 1) {
-        cmd_append(&cmd, "cp");
-        cmd_append(&cmd, BESTED_PATH);
-        cmd_append(&cmd, THIRDPARTY_FOLDER"Bested.h");
+        bool result = copy_file(BESTED_PATH, THIRDPARTY_FOLDER"Bested.h");
+        if (!result) return 1;
+    }
+
+
+    // dont make a build folder if your not building anything.
+    bool building_anything = flags.debug || flags.release || flags.wasm;
+    if (building_anything) {
+        mkdir_if_not_exists(BUILD_FOLDER);
+    }
+
+    if (flags.debug) {
+        if (!build_debug())         exit(EXIT_FAILURE);
+    }
+    if (flags.release) {
+        if (!build_release())       exit(EXIT_FAILURE);
+    }
+    if (flags.wasm) {
+        if (!build_wasm())          exit(EXIT_FAILURE);
+    }
+
+    if (flags.host_web_with_python3) {
+        printf("==============================================\n");
+        printf("Running Python HTTP Server, Use Ctl-C to Quit.\n");
+        printf("==============================================\n");
+        cmd_append(&cmd, "python3");
+        cmd_append(&cmd, "-m", "http.server");
+        cmd_append(&cmd, "8080");
+        cmd_append(&cmd, "--directory", "./build/web/");
         if (!cmd_run(&cmd)) return 1;
     }
 
-    mkdir_if_not_exists(BUILD_FOLDER);
 
-    if (!build_debug())     return 1;
-    if (!build_release())   return 1;
-
-    if (!build_wasm()) return 1;
-
-    return 0;
+    exit(EXIT_SUCCESS);
 }
 
 
 
 
 
-
-
-void cmd_cc(void) {
-    cmd_append(&cmd, "clang");
-    cmd_append(&cmd, "-std=gnu11");
-}
-
-void cmd_c_flags(void) {
-    cmd_append(&cmd, "-Wall", "-Wextra");
-    // cmd_append(&cmd, "-Werror");
-    cmd_append(&cmd, "-Wno-initializer-overrides");
-
-    cmd_append(&cmd, "-I"THIRDPARTY_FOLDER);
-}
 
 
 
@@ -93,6 +207,21 @@ bool compile_raylib_library(const char *out_name, const char *platform) {
     if (!result) return false;
 
     return true;
+}
+
+
+
+void cmd_cc(void) {
+    cmd_append(&cmd, "clang");
+    cmd_append(&cmd, "-std=gnu11");
+}
+
+void cmd_c_flags(void) {
+    cmd_append(&cmd, "-Wall", "-Wextra");
+    // cmd_append(&cmd, "-Werror");
+    cmd_append(&cmd, "-Wno-initializer-overrides");
+
+    cmd_append(&cmd, "-I"THIRDPARTY_FOLDER);
 }
 
 void cmd_link_with_raylib(void) {
