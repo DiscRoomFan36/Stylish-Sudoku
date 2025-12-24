@@ -31,46 +31,83 @@ void cmd_c_flags(void) {
     cmd_append(&cmd, "-I"THIRDPARTY_FOLDER);
 }
 
-void cmd_debug(void) {
-    cmd_append(&cmd, "-ggdb");
-}
 
-void cmd_link_with_raylib(void) {
-    cmd_append(&cmd, "-I"RAYLIB_FOLDER"src");
-    cmd_append(&cmd, "-L"RAYLIB_FOLDER"src");
-    cmd_append(&cmd, "-l:libraylib.so", "-lm");
-}
 
-bool build_debug(void) {
-    cmd_cc();
-    cmd_c_flags();
-    cmd_debug();
-    // cmd_append(&cmd, "-O2");
-    cmd_append(&cmd, "-o", BUILD_FOLDER"main_debug");
-    cmd_append(&cmd, SRC_FOLDER"main.c");
-    cmd_link_with_raylib();
+#define BUILD_LIBRARIES_FOLDER  BUILD_FOLDER"libraries/"
+
+// this dose cashing
+bool compile_raylib_library(const char *out_name, const char *platform) {
+    const char *file_path = temp_sprintf("%s%s", BUILD_LIBRARIES_FOLDER, out_name);
+
+    // do some caching.
+    if (check_if_file_exists(file_path)) {
+        return true;
+    }
+
+    cmd_append(&cmd, "make");
+    cmd_append(&cmd, "--directory="RAYLIB_FOLDER"src/");
+    cmd_append(&cmd, temp_sprintf("PLATFORM=%s", platform));
+    cmd_append(&cmd, "-B"); // rebuild all
     if (!cmd_run(&cmd)) return false;
+
+    mkdir_if_not_exists(BUILD_LIBRARIES_FOLDER);
+    // There might not be a raylib.a, it might have been made a shared library...
+    // this project is not going to use a .so, so its file. 
+    bool result = copy_file(
+        RAYLIB_FOLDER"src/libraylib.a",
+        file_path
+    );
+    if (!result) return false;
 
     return true;
 }
 
+void cmd_link_with_raylib(void) {
+    cmd_append(&cmd, "-I"RAYLIB_FOLDER"src");
+    cmd_append(&cmd, "-L"BUILD_LIBRARIES_FOLDER);
+    cmd_append(&cmd, "-lraylib_static", "-lm");
+}
+
+
+
+bool build_debug(void) {
+    if (!compile_raylib_library("libraylib_static.a", "PLATFORM_DESKTOP")) return false;
+
+    cmd_cc();
+    cmd_c_flags();
+    cmd_append(&cmd, "-ggdb"); // debug flag
+
+    cmd_append(&cmd, "-o", BUILD_FOLDER"main_debug");
+    cmd_append(&cmd, SRC_FOLDER"main.c");
+
+    cmd_link_with_raylib();
+
+    if (!cmd_run(&cmd)) return false;
+    return true;
+}
+
 bool build_release(void) {
+    if (!compile_raylib_library("libraylib_static.a", "PLATFORM_DESKTOP")) return false;
+
     cmd_cc();
     cmd_c_flags();
     cmd_append(&cmd, "-O2");
+
     cmd_append(&cmd, "-o", BUILD_FOLDER"main_release");
     cmd_append(&cmd, SRC_FOLDER"main.c");
-    cmd_link_with_raylib();
-    if (!cmd_run(&cmd)) return false;
 
+    cmd_link_with_raylib();
+
+    if (!cmd_run(&cmd)) return false;
     return true;
 }
 
 
 bool build_wasm(void) {
+    if (!compile_raylib_library("libraylib_web.a", "PLATFORM_WEB")) return false;
 
     // focus wasn't useing my .bashrc, so i had to provide this directly.
-    #define EMCC_PATH "/home/fletcher/Thirdparty/emsdk/upstream/emscripten/emcc"
+    // #define EMCC_PATH "/home/fletcher/Thirdparty/emsdk/upstream/emscripten/emcc"
 
     mkdir_if_not_exists(BUILD_FOLDER"web/");
 
@@ -125,10 +162,10 @@ int main(int argc, char **argv) {
     mkdir_if_not_exists(BUILD_FOLDER);
 
     if (!build_debug())     return 1;
-    // if (!build_release())   return 1;
+    if (!build_release())   return 1;
 
 
-    // if (!build_wasm()) return 1;
+    if (!build_wasm()) return 1;
 
     return 0;
 }
