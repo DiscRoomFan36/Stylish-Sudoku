@@ -14,6 +14,7 @@
 static bool build_debug(void);
 static bool build_release(void);
 static bool build_wasm(void);
+static bool build_sudoku_solver_tests(void);
 
 
 static Cmd cmd = {0};
@@ -24,10 +25,12 @@ static Cmd cmd = {0};
     X(help,         "prints this help message and quits")       \
     X(all,          "build all targets. [debug, release, wasm]")        \
     X(clean,        "clean up all build artifacts, happens before all other commands, so 'all clean' will clean everything, then build everything.")        \
+    X(run_tests,    "build and run the tests")                  \
     X(debug,        "build   debug native version")             \
     X(release,      "build release native version")             \
     X(wasm,         "build web page with Emscripten")           \
-    X(host_web_with_python3,        "build and use python3 to serve web build on port 8080")        \
+    X(sudoku_solver_tests,      "build the tests for the sudoku solver")    \
+    X(host_web_with_python3,    "build and use python3 to serve web build on port 8080")        \
 
 
 
@@ -104,11 +107,15 @@ int main(int argc, char **argv) {
         exit(EXIT_SUCCESS);
     }
 
-
     if (flags.all) {
         flags.debug      = true;
         flags.release    = true;
         flags.wasm       = true;
+        flags.sudoku_solver_tests = true;
+    }
+
+    if (flags.run_tests) {
+        flags.sudoku_solver_tests = true;
     }
 
     if (flags.host_web_with_python3) {
@@ -143,7 +150,7 @@ int main(int argc, char **argv) {
 
 
     // dont make a build folder if your not building anything.
-    bool building_anything = flags.debug || flags.release || flags.wasm;
+    bool building_anything = flags.debug || flags.release || flags.wasm || flags.sudoku_solver_tests;
     if (building_anything) {
         mkdir_if_not_exists(BUILD_FOLDER);
     }
@@ -157,6 +164,17 @@ int main(int argc, char **argv) {
     if (flags.wasm) {
         if (!build_wasm())          exit(EXIT_FAILURE);
     }
+    if (flags.sudoku_solver_tests) {
+        if (!build_sudoku_solver_tests())   exit(EXIT_FAILURE);
+    }
+
+
+    if (flags.run_tests) {
+        // run the tests
+        cmd_append(&cmd, BUILD_FOLDER"test_sudoku_solver");
+        if (!cmd_run(&cmd))         exit(EXIT_FAILURE);
+    }
+
 
     if (flags.host_web_with_python3) {
         printf("==============================================\n");
@@ -315,4 +333,14 @@ bool build_wasm(void) {
     return true;
 }
 
+bool build_sudoku_solver_tests(void) {
+    cmd_cc();
+    cmd_c_flags();
+    cmd_append(&cmd, "-ggdb"); // debug flag
 
+    cmd_append(&cmd, "-o", BUILD_FOLDER"test_sudoku_solver");
+    cmd_append(&cmd, SRC_FOLDER"sudoku_solver/test_sudoku_solver.c");
+
+    if (!cmd_run(&cmd)) return false;
+    return true;
+}
