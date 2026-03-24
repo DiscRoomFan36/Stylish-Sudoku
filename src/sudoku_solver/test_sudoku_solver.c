@@ -224,9 +224,167 @@ void test_check_for_single_in_row_and_columns(void) {
 }
 
 
+Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string);
+
+
+void test_solver_sudoku_bad_input(void) {
+    struct Test {
+        const char *test_name;
+        const char *sudoku_string;
+    } tests[] = {
+        {
+            .test_name = "row check",
+            .sudoku_string =    "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "3......3."
+                                ".........",
+        },
+        {
+            .test_name = "col check",
+            .sudoku_string =    "1........"
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "1........"
+                                ".........",
+        },
+        {
+            .test_name = "box check",
+            .sudoku_string =    "........."
+                                "......9.."
+                                "........9"
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                ".........",
+        },
+        {
+            .test_name = "no possible answer in box",
+            .sudoku_string =    "123......"
+                                "456......"
+                                "78......9"
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                ".........",
+        },
+    };
+
+    for (size_t i = 0; i < Array_Len(tests); i++) {
+        struct Test test = tests[i];
+
+        Input_Sudoku_Puzzle input = sudoku_string_to_input_puzzle(test.sudoku_string);
+
+        Sudoku_Solver_Result result = Solve_Sudoku(input);
+
+        TEST_EXPECT_WITH_REASON(result.sudoku_is_possible == false, "%s", test.test_name);
+    }
+}
+
+void test_solve_sudoku_easy(void) {
+        struct Test {
+        const char *test_name;
+        const char *sudoku_string;
+        const char *correct_string;
+    } tests[] = {
+        {
+            .test_name = "already complete sudoku",
+            .sudoku_string =    "913568427"
+                                "687342915"
+                                "254197683"
+                                "479685132"
+                                "162734598"
+                                "538219764"
+                                "345926871"
+                                "726851349"
+                                "891473256",
+
+            .correct_string =   "913568427"
+                                "687342915"
+                                "254197683"
+                                "479685132"
+                                "162734598"
+                                "538219764"
+                                "345926871"
+                                "726851349"
+                                "891473256",
+        },
+        {
+            .test_name = "1 digit away",
+            .sudoku_string =    "913568427"
+                                "687342915"
+                                "254197683"
+                                "4796.5132"
+                                "162734598"
+                                "538219764"
+                                "345926871"
+                                "726851349"
+                                "891473256",
+
+            .correct_string =   "913568427"
+                                "687342915"
+                                "254197683"
+                                "479685132"
+                                "162734598"
+                                "538219764"
+                                "345926871"
+                                "726851349"
+                                "891473256",
+        },
+        {
+            .test_name = "an easy (but non trivial) sudoku",
+            .sudoku_string =    "9..5.8..7"
+                                ".8.3.29.5"
+                                ".54....8."
+                                "...68..32"
+                                "1....4..8"
+                                "5..219.6."
+                                "...9.6..1"
+                                "726..1.4."
+                                "..147..56",
+
+            .correct_string =   "913568427"
+                                "687342915"
+                                "254197683"
+                                "479685132"
+                                "162734598"
+                                "538219764"
+                                "345926871"
+                                "726851349"
+                                "891473256",
+        },
+    };
+
+
+    for (size_t i = 0; i < Array_Len(tests); i++) {
+        struct Test test = tests[i];
+
+        Input_Sudoku_Puzzle input   = sudoku_string_to_input_puzzle(test.sudoku_string);
+        Input_Sudoku_Puzzle correct = sudoku_string_to_input_puzzle(test.correct_string);
+
+        Sudoku_Solver_Result result = Solve_Sudoku(input);
+
+        TEST_EXPECT_WITH_REASON(result.sudoku_is_possible, "%s", test.test_name);
+        TEST_EXPECT_WITH_REASON(memcmp(&correct.grid, &result.correct_grid, sizeof(correct.grid)) == 0, "%s", test.test_name);
+    }
+}
+
+
 #define DISABLE_SANDBOX     (false)
 
-int main(int argc, char **argv) {
+int main(void) {
     srand(time(NULL));
 
     ADD_TEST(test_foreach_cell);
@@ -236,10 +394,36 @@ int main(int argc, char **argv) {
     ADD_TEST(test_check_for_naked_singles);
     ADD_TEST(test_check_for_single_in_row_and_columns);
 
+    ADD_TEST(test_solver_sudoku_bad_input);
+    ADD_TEST(test_solve_sudoku_easy);
+
     int number_of_tests_failed = RUN_TESTS(.disable_sandboxing_for_all_tests = DISABLE_SANDBOX);
     printf("number of tests failed: %d\n\n", number_of_tests_failed);
     return (number_of_tests_failed == 0) ? 0 : 1;
 }
+
+
+
+Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string) {
+    if (strlen(sudoku_string) != 9*9) PANIC("sudoku_string is not 9*9");
+
+    Input_Sudoku_Puzzle input = ZEROED;
+    for (size_t j = 0; j < 9; j++) {
+        for (size_t i = 0; i < 9; i++) {
+            u8 digit = 0;
+
+            char c = sudoku_string[xy_to_index(i, j)];
+            if (c != '.') { digit = c - '0'; }
+
+            assert(Is_Between(digit, 0, 9));
+            input.grid.digits[j][i] = digit; 
+        }
+    }
+
+    return input;
+}
+
+
 
 
 #define BESTED_IMPLEMENTATION

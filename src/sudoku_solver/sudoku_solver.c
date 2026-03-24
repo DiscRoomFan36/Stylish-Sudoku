@@ -7,14 +7,27 @@ static_assert(NUM_DIGITS == 9, "a lot of this would have to change to allow for 
 
 
 
+typedef struct Sudoku_Digit_Grid {
+    u8 digits[NUM_DIGITS][NUM_DIGITS];
+} Sudoku_Digit_Grid;
+
 // the API is that you fill out this struct, then pass it into the solver, and presto!
 typedef struct {
-    u8 digits[NUM_DIGITS][NUM_DIGITS];
+    Sudoku_Digit_Grid grid;
 
     // TODO variant sudoku's stuff.
 } Input_Sudoku_Puzzle;
 
-void Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku);
+typedef struct {
+    bool sudoku_is_possible;
+
+    Sudoku_Digit_Grid correct_grid;
+
+    // TODO maybe something about a path.
+} Sudoku_Solver_Result;
+
+
+Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku);
 
 
 
@@ -191,6 +204,10 @@ Vec2i cell_to_xy(Sudoku_Solver_Struct *solver, Cell *cell) {
     return result;
 }
 
+size_t xy_to_index(s32 x, s32 y) {
+    return y*NUM_DIGITS + x;
+}
+
 size_t xy_to_box_index(s32 x, s32 y) {
     return y/3*3 + x/3;
 }
@@ -216,12 +233,7 @@ void mark_and_place_digit(Sudoku_Solver_Struct *solver, size_t x, size_t y, u8 d
     // make sure nothing was placed here before.
     assert(cell->placed_digit == 0);
 
-    //
     // must have been possible to place this digit in the first place.
-    //
-    // TODO make this return a bool, user could provide an invalid sudoku...
-    // @InvalidSudoku
-    //
     assert(cell->possible_digits & DIGIT_BIT(digit));
 
     cell->placed_digit = digit;
@@ -298,8 +310,7 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver);
 
 
 
-void Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
-
+Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
     // initialize the solver
     Sudoku_Solver_Struct solver = init_solver();
 
@@ -308,30 +319,44 @@ void Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
     // TODO could this be a FOREACH_CELL?
     for (size_t j = 0; j < NUM_DIGITS; j++) {
         for (size_t i = 0; i < NUM_DIGITS; i++) {
-            u8 digit = input_sudoku.digits[j][i];
+            u8 digit = input_sudoku.grid.digits[j][i];
             if (!Is_Between(digit, 0, 9)) {
                 PANIC("Solve_Sudoku: invalid input, got digit that was not in range, expected [0..9], was %d (at cell (%zu,%zu))", digit, i, j);
             }
             if (digit == 0) { continue; }
 
             Cell *cell = &solver.Cells[j][i];
-            if ((cell->possible_digits & DIGIT_BIT(digit)) == 0) {
-                // the user handed us an invalid sudoku from the very begining.
-                TODO("Maybe jump to RESULT_FAIL?");
-            }
+            // check if the digit is possible to place.
+            if ((cell->possible_digits & DIGIT_BIT(digit)) == 0)   goto exit_failure;
 
-            // this might panic, see @InvalidSudoku
+            // the above check prevents this from panic'ing.
             mark_and_place_digit(&solver, i, j, digit);
+            if (solver.is_invalid)   goto exit_failure;
         }
     }
 
 
     Recur_Result result = recur_and_solve_sudoku(solver);
     if (result.status == RESULT_FAIL) {
-        assert(false && "Solver failed");
+        goto exit_failure;
     }
 
-    TODO("finish Solve_Sudoku after recurse");
+    Sudoku_Solver_Result sudoku_solver_result = ZEROED;
+    sudoku_solver_result.sudoku_is_possible = true;
+    FOREACH_CELL(&result.correct_result) {
+        Vec2i pos = cell_to_xy(&result.correct_result, cell);
+
+        assert(Is_Between(cell->placed_digit, 1, 9));
+        sudoku_solver_result.correct_grid.digits[pos.y][pos.x] = cell->placed_digit;
+    }
+
+    return sudoku_solver_result;
+
+
+
+exit_failure:
+    // the user handed us an invalid sudoku from the very begining.
+    return (Sudoku_Solver_Result){ .sudoku_is_possible = false };
 }
 
 
