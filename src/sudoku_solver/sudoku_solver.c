@@ -170,6 +170,8 @@ Sudoku_Solver_Struct init_solver(void) {
     return solver;
 }
 
+
+
 // is this needed?
 size_t cell_to_index(Sudoku_Solver_Struct *solver, Cell *cell) {
     size_t index = cell - &solver->Cells[0][0];
@@ -188,6 +190,20 @@ Vec2i cell_to_xy(Sudoku_Solver_Struct *solver, Cell *cell) {
     };
     return result;
 }
+
+size_t xy_to_box_index(s32 x, s32 y) {
+    return y/3*3 + x/3;
+}
+#define xy_to_box_index_v2(pos) xy_to_box_index((pos).x, (pos).y)
+
+Vec2i box_and_index_to_xy(size_t box_index, size_t index_in_box) {
+    Vec2i result = {
+        .x = box_index%3*3 + index_in_box%3,
+        .y = box_index/3*3 + index_in_box/3,
+    };
+    return result;
+}
+
 
 
 void mark_and_place_digit(Sudoku_Solver_Struct *solver, size_t x, size_t y, u8 digit) {
@@ -429,41 +445,41 @@ bool check_for_naked_singles(Sudoku_Solver_Struct *solver) {
 }
 
 bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
-    for (size_t i = 0; i < NUM_DIGITS; i++) {
-        u16 bit_feild[NUM_DIGITS] = ZEROED;
+    // rows
+    for (size_t row = 0; row < NUM_DIGITS; row++) {
+        u16 bit_field[NUM_DIGITS] = ZEROED;
         u16 is_placed = 0;
 
-        int index_in_xxx = -1;
-        FOREACH_CELL_IN_ROW(solver, i) {
-            index_in_xxx += 1;
-
+        // this is kinda dumb. wish i could get the it_index in FOREACH
+        size_t index_in_xxx = 0;
+        FOREACH_CELL_IN_ROW(solver, row) {
             if (cell->placed_digit != 0) {
                 is_placed |= DIGIT_BIT(cell->placed_digit);
-                continue;
-            }
-
-            for (size_t digit = 1; digit <= 9; digit++) {
-                if (cell->possible_digits & DIGIT_BIT(digit)) {
-                    bit_feild[digit-1] |= (1 << index_in_xxx);
-                    // this could be `|= 1 << j;`
-                    // counts[digit-1] += 1;
+            } else {
+                for (size_t digit = 1; digit <= 9; digit++) {
+                    if (cell->possible_digits & DIGIT_BIT(digit)) {
+                        bit_field[digit-1] |= (1 << index_in_xxx);
+                    }
                 }
             }
+
+            index_in_xxx += 1;
         }
 
         bool was_naked_single = false;
         for (size_t digit = 1; digit <= NUM_DIGITS; digit++) {
+            // could use count_trailing_zeros(~is_placed);
             if (is_placed & DIGIT_BIT(digit)) continue;
 
-            if (pop_count(bit_feild[digit-1]) != 1) continue;
-            // if (counts[digit-1] != 1) continue;
+            if (pop_count(bit_field[digit-1]) != 1) continue;
 
             was_naked_single = true;
 
-            u32 digit_loc = count_trailing_zeros(bit_feild[digit-1]);
-            assert(solver->Cells[i][digit_loc].possible_digits == DIGIT_BIT(digit));
+            u32 digit_loc = count_trailing_zeros(bit_field[digit-1]);
+            assert(Is_Between(digit_loc, 0, NUM_DIGITS-1));
+            Vec2i pos = { digit_loc, row };
+            assert(solver->Cells[pos.y][pos.x].possible_digits & DIGIT_BIT(digit));
 
-            mark_and_place_digit(solver, digit_loc, i, digit);
             //
             // TODO being able to say something like "dont check this row" would be super good.
             // but it would have to be a macro.
@@ -471,71 +487,125 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
             // cannot wait for jai to release.
             //
             // mark_and_place_digit(&solver, digit_loc, row, digit, .no_row_check = true);
+            mark_and_place_digit(solver, pos.x, pos.y, digit);
+
+            // we are still going to check the rest of the digits.
+            // even if the sudoku becomes invalid after this,
+            // its still fine to place these digits.
         }
         // dont check the other rows for this.
         //
         // we will be back here soon.
         if (was_naked_single) return true;
-
     }
 
-    // for (size_t row = 0; row < NUM_DIGITS; row++) {
+    // cols
+    for (size_t col = 0; col < NUM_DIGITS; col++) {
+        u16 bit_field[NUM_DIGITS] = ZEROED;
+        u16 is_placed = 0;
 
-    //     // u32 counts_row[NUM_DIGITS] = ZEROED;
-    //     // u32 counts_col[NUM_DIGITS] = ZEROED;
-    //     // u32 counts_box[NUM_DIGITS] = ZEROED;
+        // this is kinda dumb. wish i could get the it_index in FOREACH
+        size_t index_in_xxx = 0;
+        FOREACH_CELL_IN_COL(solver, col) {
+            if (cell->placed_digit != 0) {
+                is_placed |= DIGIT_BIT(cell->placed_digit);
+            } else {
+                for (size_t digit = 1; digit <= 9; digit++) {
+                    if (cell->possible_digits & DIGIT_BIT(digit)) {
+                        bit_field[digit-1] |= (1 << index_in_xxx);
+                    }
+                }
+            }
 
-    //     u32 counts[NUM_DIGITS] = ZEROED;
-    //     u16 is_placed = 0;
+            index_in_xxx += 1;
+        }
 
-    //     for (size_t i = 0; i < NUM_DIGITS; i++) {
-    //         Cell *cell = &solver->Cells[row][i];
+        bool was_naked_single = false;
+        for (size_t digit = 1; digit <= NUM_DIGITS; digit++) {
+            // could use count_trailing_zeros(~is_placed);
+            if (is_placed & DIGIT_BIT(digit)) continue;
 
-    //         if (cell->placed_digit != 0) {
-    //             is_placed |= DIGIT_BIT(cell->placed_digit);
-    //         }
+            if (pop_count(bit_field[digit-1]) != 1) continue;
 
-    //         // probably a smarter way to loop over the options.
-    //         for (size_t digit = 1; digit <= 9; digit++) {
-    //             if (cell->possible_digits & DIGIT_BIT(digit)) {
-    //                 counts[digit-1] += 1;
-    //             }
-    //         }
-    //     }
-    //     bool was_naked_single = false;
-    //     for (size_t digit = 1; digit <= NUM_DIGITS; digit++) {
-    //         if (is_placed & DIGIT_BIT(digit)) continue;
-    //         if (counts[digit-1] != 1) continue;
+            was_naked_single = true;
 
-    //         was_naked_single = true;
+            u32 digit_loc = count_trailing_zeros(bit_field[digit-1]);
+            assert(Is_Between(digit_loc, 0, NUM_DIGITS-1));
+            Vec2i pos = { col, digit_loc };
+            assert(solver->Cells[pos.y][pos.x].possible_digits & DIGIT_BIT(digit));
 
-    //         s32 digit_loc = -1;
-    //         for (size_t i = 0; i < NUM_DIGITS; i++) {
-    //             Cell *cell = &solver->Cells[row][i];
+            //
+            // TODO being able to say something like "dont check this row" would be super good.
+            // but it would have to be a macro.
+            //
+            // cannot wait for jai to release.
+            //
+            // mark_and_place_digit(&solver, digit_loc, row, digit, .no_row_check = true);
+            mark_and_place_digit(solver, pos.x, pos.y, digit);
 
-    //             if (cell->possible_digits & DIGIT_BIT(digit)) {
-    //                 digit_loc = i;
-    //                 break;
-    //             }
-    //         }
-    //         assert(digit_loc != -1);
+            // we are still going to check the rest of the digits.
+            // even if the sudoku becomes invalid after this,
+            // its still fine to place these digits.
+        }
+        // dont check the other rows for this.
+        //
+        // we will be back here soon.
+        if (was_naked_single) return true;
+    }
 
-    //         mark_and_place_digit(solver, digit_loc, row, digit);
-    //         //
-    //         // TODO being able to say something like "dont check this row" would be super good.
-    //         // but it would have to be a macro.
-    //         //
-    //         // cannot wait for jai to release.
-    //         //
-    //         // mark_and_place_digit(&solver, digit_loc, row, digit, .no_row_check = true);
-    //     }
-    //     // dont check the other rows for this.
-    //     //
-    //     // we will be back here soon.
-    //     if (was_naked_single) return true;
-    // }
+    // boxs
+    for (size_t box = 0; box < NUM_DIGITS; box++) {
+        u16 bit_field[NUM_DIGITS] = ZEROED;
+        u16 is_placed = 0;
 
-    TODO("finish this function.");
+        // this is kinda dumb. wish i could get the it_index in FOREACH
+        size_t index_in_xxx = 0;
+        FOREACH_CELL_IN_BOX(solver, box) {
+            if (cell->placed_digit != 0) {
+                is_placed |= DIGIT_BIT(cell->placed_digit);
+            } else {
+                for (size_t digit = 1; digit <= 9; digit++) {
+                    if (cell->possible_digits & DIGIT_BIT(digit)) {
+                        bit_field[digit-1] |= (1 << index_in_xxx);
+                    }
+                }
+            }
+
+            index_in_xxx += 1;
+        }
+
+        bool was_naked_single = false;
+        for (size_t digit = 1; digit <= NUM_DIGITS; digit++) {
+            // could use count_trailing_zeros(~is_placed);
+            if (is_placed & DIGIT_BIT(digit)) continue;
+
+            if (pop_count(bit_field[digit-1]) != 1) continue;
+
+            was_naked_single = true;
+
+            u32 digit_loc = count_trailing_zeros(bit_field[digit-1]);
+            assert(Is_Between(digit_loc, 0, NUM_DIGITS-1));
+            Vec2i pos = box_and_index_to_xy(box, digit_loc);
+            assert(solver->Cells[pos.y][pos.x].possible_digits & DIGIT_BIT(digit));
+
+            //
+            // TODO being able to say something like "dont check this row" would be super good.
+            // but it would have to be a macro.
+            //
+            // cannot wait for jai to release.
+            //
+            // mark_and_place_digit(&solver, digit_loc, row, digit, .no_row_check = true);
+            mark_and_place_digit(solver, pos.x, pos.y, digit);
+
+            // we are still going to check the rest of the digits.
+            // even if the sudoku becomes invalid after this,
+            // its still fine to place these digits.
+        }
+        // dont check the other rows for this.
+        //
+        // we will be back here soon.
+        if (was_naked_single) return true;
+    }
 
     return false;
 }

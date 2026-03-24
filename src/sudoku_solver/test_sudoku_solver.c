@@ -95,6 +95,19 @@ void test_Mark_and_Place_Digit(void) {
         }
     }
 
+    { // see if it properly gets set invalid.
+        Sudoku_Solver_Struct solver = init_solver();
+
+        // this cell can only be 5
+        solver.Cells[0][0].possible_digits = DIGIT_BIT(5);
+
+        // other cell was marked 5
+        mark_and_place_digit(&solver, 1, 0, 5);
+
+        // this should be invalid
+        TEST_EXPECT(solver.is_invalid);
+    }
+
     // dont know why im doing this, but its fun.
     for (int i = 0; i < 15; i++) {
         int row   = rand() % 9;
@@ -118,8 +131,8 @@ void test_check_for_naked_singles(void) {
     TEST_EXPECT(Mem_Eq(&solver, &before, sizeof(solver)));
 
 
-    int row   = 6;
-    int col   = 3;
+    int row   = rand() % 9;
+    int col   = rand() % 9;
     int digit = 4;
 
     Cell *cell = &solver.Cells[row][col];
@@ -132,14 +145,13 @@ void test_check_for_naked_singles(void) {
     TEST_EXPECT_EQ(cell->placed_digit, digit);
     TEST_EXPECT_EQ(cell->possible_digits, 0);
 
-    // TODO maybe check that naked singles gets only one digit at a time.
 }
 
 void test_check_for_single_in_row_and_columns(void) {
     Sudoku_Solver_Struct solver = init_solver();
 
-    bool should_be_false = check_for_single_in_row_col_and_box(&solver);
-    TEST_EXPECT(should_be_false == false);
+    bool check_for_no_singles_at_start = check_for_single_in_row_col_and_box(&solver);
+    TEST_EXPECT(check_for_no_singles_at_start == false);
 
     { // test rows
         int digit = 1;
@@ -157,8 +169,8 @@ void test_check_for_single_in_row_and_columns(void) {
             cell->possible_digits &= ~DIGIT_BIT(digit);
         }
 
-        bool should_be_true = check_for_single_in_row_col_and_box(&solver);
-        TEST_EXPECT(should_be_true);
+        bool should_be_naked_in_row = check_for_single_in_row_col_and_box(&solver);
+        TEST_EXPECT(should_be_naked_in_row);
         TEST_EXPECT_EQ(naked_cell->placed_digit, digit);
     }
 
@@ -178,8 +190,8 @@ void test_check_for_single_in_row_and_columns(void) {
             cell->possible_digits &= ~DIGIT_BIT(digit);
         }
 
-        bool should_be_true = check_for_single_in_row_col_and_box(&solver);
-        TEST_EXPECT(should_be_true);
+        bool should_be_naked_in_col = check_for_single_in_row_col_and_box(&solver);
+        TEST_EXPECT(should_be_naked_in_col);
         TEST_EXPECT_EQ(naked_cell->placed_digit, digit);
     }
 
@@ -194,19 +206,29 @@ void test_check_for_single_in_row_and_columns(void) {
             naked_cell = &solver.Cells[row][col];
         } while (naked_cell->placed_digit != 0);
 
-        FOREACH_CELL_IN_BOX(&solver, row/3*3 + col/3) {
-            if (cell == naked_cell) continue;
+        bool seen_naked = false;
+
+        size_t box_index = xy_to_box_index(col, row);
+
+        FOREACH_CELL_IN_BOX(&solver, box_index) {
+            if (cell == naked_cell) { seen_naked = true; continue; }
             cell->possible_digits &= ~DIGIT_BIT(digit);
         }
 
-        bool should_be_true = check_for_single_in_row_col_and_box(&solver);
-        TEST_EXPECT(should_be_true);
+        TEST_EXPECT(seen_naked);
+
+        bool should_be_naked_in_box = check_for_single_in_row_col_and_box(&solver);
+        TEST_EXPECT(should_be_naked_in_box);
         TEST_EXPECT_EQ(naked_cell->placed_digit, digit);
     }
 }
 
 
-int main(void) {
+#define DISABLE_SANDBOX     (false)
+
+int main(int argc, char **argv) {
+    srand(time(NULL));
+
     ADD_TEST(test_foreach_cell);
     ADD_TEST(test_foreach_cell_in_row_col_and_box);
 
@@ -214,9 +236,8 @@ int main(void) {
     ADD_TEST(test_check_for_naked_singles);
     ADD_TEST(test_check_for_single_in_row_and_columns);
 
-    int number_of_tests_failed = RUN_TESTS();
+    int number_of_tests_failed = RUN_TESTS(.disable_sandboxing_for_all_tests = DISABLE_SANDBOX);
     printf("number of tests failed: %d\n\n", number_of_tests_failed);
-
     return (number_of_tests_failed == 0) ? 0 : 1;
 }
 
