@@ -337,6 +337,7 @@ bool build_sudoku_solver_tests(void) {
     cmd_cc();
     cmd_c_flags();
     cmd_append(&cmd, "-ggdb"); // debug flag
+    // cmd_append(&cmd, "-O2");
 
     cmd_append(&cmd, "-o", BUILD_FOLDER"test_sudoku_solver");
     cmd_append(&cmd, SRC_FOLDER"sudoku_solver/test_sudoku_solver.c");

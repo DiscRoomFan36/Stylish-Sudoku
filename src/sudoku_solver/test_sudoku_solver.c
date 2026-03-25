@@ -4,6 +4,10 @@
 #include "TEST_MA.h"
 
 
+// helper to construct sudoku grids.
+Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string);
+
+
 
 void test_foreach_cell(void) {
     Sudoku_Solver_Struct solver = init_solver();
@@ -122,6 +126,50 @@ void test_Mark_and_Place_Digit(void) {
     }
 }
 
+void test_check_sudoku_is_invalid_by_no_way_to_put_digit_in_row(void) {
+    struct Test {
+        const char *test_name;
+        const char *sudoku_string;
+        bool        is_possible;
+    } tests[] = {
+        {
+            .test_name = "handcrafted 1",
+            .sudoku_string =    ".....1..."
+                                "........."
+                                "........."
+                                ".......1."
+                                ".1......."
+                                "...2....."
+                                "1........"
+                                "........."
+                                "....1....",
+            .is_possible = false,
+        },
+        {
+            .test_name = "puzzle that has this behaviour 1",
+            .sudoku_string = "302000000000067000600004100563000480004080030900000000001006070050800040837002009",
+            .is_possible = true,
+        },
+        {
+            .test_name = "puzzle that has this behaviour 2",
+            .sudoku_string = "050604000070010630010000004700000003091308000000040970000900460960007000400005020",
+            .is_possible = true,
+        },
+    };
+
+    for (size_t i = 0; i < Array_Len(tests); i++) {
+        struct Test test = tests[i];
+
+        Input_Sudoku_Puzzle input = sudoku_string_to_input_puzzle(test.sudoku_string);
+
+        Sudoku_Solver_Result result = Solve_Sudoku(input);
+        TEST_EXPECT_WITH_REASON(result.sudoku_is_possible == test.is_possible, "%s", test.test_name);
+
+        // TODO it would be good if i had a way to detect the reason it was invalid.
+        // probably want the path of the solve soon.
+    }
+}
+
 void test_check_for_naked_singles(void) {
     Sudoku_Solver_Struct solver = init_solver();
 
@@ -223,8 +271,9 @@ void test_check_for_single_in_row_and_columns(void) {
     }
 }
 
-
-Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string);
+void test_check_for_x_wing_and_puzzles_with_multiple_solutions(void) {
+    TEST_FAIL("TODO: test_check_for_x_wing_and_puzzles_with_multiple_solutions");
+}
 
 
 void test_solver_sudoku_bad_input(void) {
@@ -294,7 +343,7 @@ void test_solver_sudoku_bad_input(void) {
 }
 
 void test_solve_sudoku_easy(void) {
-        struct Test {
+    struct Test {
         const char *test_name;
         const char *sudoku_string;
         const char *correct_string;
@@ -381,6 +430,73 @@ void test_solve_sudoku_easy(void) {
     }
 }
 
+void test_solve_sudoku_medium(void) {
+    struct Test {
+        const char *test_name;
+        const char *sudoku_string;
+        const char *correct_string;
+    } tests[] = {
+        {
+            .test_name = "medium difficulty sudoku",
+
+            .sudoku_string =    "2.34....5"
+                                "8.916.7.4"
+                                "..6.3..19"
+                                "7.2..3.6."
+                                "..825...."
+                                "..16.7..2"
+                                "..7..5926"
+                                "93.72...."
+                                "6...9.47.",
+
+            .correct_string =   "213479685"
+                                "859162734"
+                                "476538219"
+                                "742913568"
+                                "368254197"
+                                "591687342"
+                                "187345926"
+                                "934726851"
+                                "625891473",
+        },
+    };
+
+    for (size_t i = 0; i < Array_Len(tests); i++) {
+        struct Test test = tests[i];
+
+        Input_Sudoku_Puzzle input   = sudoku_string_to_input_puzzle(test.sudoku_string);
+        Input_Sudoku_Puzzle correct = sudoku_string_to_input_puzzle(test.correct_string);
+        TEST_EXPECT(Solve_Sudoku(correct).sudoku_is_possible);
+
+        Sudoku_Solver_Result result = Solve_Sudoku(input);
+
+        TEST_EXPECT_WITH_REASON(result.sudoku_is_possible, "%s", test.test_name);
+        TEST_EXPECT_WITH_REASON(memcmp(&correct.grid, &result.correct_grid, sizeof(correct.grid)) == 0, "%s", test.test_name);
+    }
+}
+
+void bench_test_many_sudoku(void) {
+    // dont really need any memory management for this.
+    // but Read_Entire_File() expects a valid Arena.
+    Arena a = ZEROED;
+    String many_sudoku_strings = Read_Entire_File(&a, S("./src/sudoku_solver/printable_sudoku_puzzle_4.txt"));
+    TEST_EXPECT_WITH_REASON(many_sudoku_strings.length != 0, "if this file dose not exist, this means i dont know what to do with the copyright for now.");
+
+    u64 i = 0;
+    while (true) {
+        String line = String_Get_Next_Line(&many_sudoku_strings, &i, SGNL_Trim);
+        if (line.length == 0) break;
+
+        Input_Sudoku_Puzzle input = sudoku_string_to_input_puzzle(temp_String_To_C_Str(line));
+        if (line.length != 9*9) TEST_FAIL("line length was not 9*9 was %ld", line.length);
+
+        Sudoku_Solver_Result result = Solve_Sudoku(input);
+        if (!result.sudoku_is_possible)   TEST_FAIL("Sudoku %zu was not possible", i);
+    }
+    TEST_EXPECT_WITH_REASON(true, "finished %zu sudoku's", i);
+}
+
+
 
 #define DISABLE_SANDBOX     (false)
 
@@ -391,11 +507,16 @@ int main(void) {
     ADD_TEST(test_foreach_cell_in_row_col_and_box);
 
     ADD_TEST(test_Mark_and_Place_Digit);
+    ADD_TEST(test_check_sudoku_is_invalid_by_no_way_to_put_digit_in_row);
     ADD_TEST(test_check_for_naked_singles);
     ADD_TEST(test_check_for_single_in_row_and_columns);
+    ADD_TEST(test_check_for_x_wing_and_puzzles_with_multiple_solutions);
 
     ADD_TEST(test_solver_sudoku_bad_input);
     ADD_TEST(test_solve_sudoku_easy);
+    ADD_TEST(test_solve_sudoku_medium);
+
+    ADD_TEST(bench_test_many_sudoku, .timeout_time = 2);
 
     int number_of_tests_failed = RUN_TESTS(.disable_sandboxing_for_all_tests = DISABLE_SANDBOX);
     printf("number of tests failed: %d\n\n", number_of_tests_failed);
@@ -407,13 +528,23 @@ int main(void) {
 Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string) {
     if (strlen(sudoku_string) != 9*9) PANIC("sudoku_string is not 9*9");
 
+    char empty_chars[] = {'.', '0'};
+
     Input_Sudoku_Puzzle input = ZEROED;
     for (size_t j = 0; j < 9; j++) {
         for (size_t i = 0; i < 9; i++) {
             u8 digit = 0;
 
             char c = sudoku_string[xy_to_index(i, j)];
-            if (c != '.') { digit = c - '0'; }
+            bool is_empty_char = false;
+            for (size_t k = 0; k < Array_Len(empty_chars); k++) {
+                if (c == empty_chars[k]) {
+                    is_empty_char = true;
+                    break;
+                }
+            }
+
+            if (!is_empty_char) { digit = c - '0'; }
 
             assert(Is_Between(digit, 0, 9));
             input.grid.digits[j][i] = digit; 

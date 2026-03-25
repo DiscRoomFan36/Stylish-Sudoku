@@ -79,6 +79,19 @@ typedef struct {
 // maybe we should subtract 1 from this? the 0'th bit is not used.
 #define DIGIT_BIT(digit) (1 << digit)
 
+#define ALL_DIGIT_BITS  \
+    (                   \
+        DIGIT_BIT(1) |  \
+        DIGIT_BIT(2) |  \
+        DIGIT_BIT(3) |  \
+        DIGIT_BIT(4) |  \
+        DIGIT_BIT(5) |  \
+        DIGIT_BIT(6) |  \
+        DIGIT_BIT(7) |  \
+        DIGIT_BIT(8) |  \
+        DIGIT_BIT(9)    \
+    )
+
 
 
 
@@ -248,17 +261,44 @@ void mark_and_place_digit(Sudoku_Solver_Struct *solver, size_t x, size_t y, u8 d
     //
     // then remove the possibility from the cell.
     //
-    FOREACH_CELL_IN_ROW(solver, y) {
-        if (cell->possible_digits == DIGIT_BIT(digit))   solver->is_invalid = true;
-        cell->possible_digits &= ~DIGIT_BIT(digit);
+    // seen_in_xxx is used to detect when a digit is no longer able
+    // to be placed in a row col or box. this check dose not guarantee
+    // that no such digit has appeared, but it shouldn't take to much
+    // extra time.
+    //
+    {
+        u16 seen_in_xxx = 0;
+        FOREACH_CELL_IN_ROW(solver, y) {
+            if (cell->possible_digits == DIGIT_BIT(digit))   solver->is_invalid = true;
+            cell->possible_digits &= ~DIGIT_BIT(digit);
+
+            if (cell->placed_digit != 0)   seen_in_xxx |= DIGIT_BIT(cell->placed_digit);
+            seen_in_xxx |= cell->possible_digits;
+        }
+        if (seen_in_xxx != ALL_DIGIT_BITS) solver->is_invalid = true;
     }
-    FOREACH_CELL_IN_COL(solver, x) {
-        if (cell->possible_digits == DIGIT_BIT(digit))   solver->is_invalid = true;
-        cell->possible_digits &= ~DIGIT_BIT(digit);
+    {
+        u16 seen_in_xxx = 0;
+        FOREACH_CELL_IN_COL(solver, x) {
+            if (cell->possible_digits == DIGIT_BIT(digit))   solver->is_invalid = true;
+            cell->possible_digits &= ~DIGIT_BIT(digit);
+
+            if (cell->placed_digit != 0)   seen_in_xxx |= DIGIT_BIT(cell->placed_digit);
+            seen_in_xxx |= cell->possible_digits;
+        }
+        if (seen_in_xxx != ALL_DIGIT_BITS) solver->is_invalid = true;
     }
-    FOREACH_CELL_IN_BOX(solver, y/3*3 + x/3) {
-        if (cell->possible_digits == DIGIT_BIT(digit))   solver->is_invalid = true;
-        cell->possible_digits &= ~DIGIT_BIT(digit);
+    {
+        u16 seen_in_xxx = 0;
+        // hope this xy_to_box_index(x, y) is not called 5 times
+        FOREACH_CELL_IN_BOX(solver, xy_to_box_index(x, y)) {
+            if (cell->possible_digits == DIGIT_BIT(digit))   solver->is_invalid = true;
+            cell->possible_digits &= ~DIGIT_BIT(digit);
+
+            if (cell->placed_digit != 0)   seen_in_xxx |= DIGIT_BIT(cell->placed_digit);
+            seen_in_xxx |= cell->possible_digits;
+        }
+        if (seen_in_xxx != ALL_DIGIT_BITS) solver->is_invalid = true;
     }
 }
 
@@ -304,6 +344,8 @@ u32 count_trailing_zeros(u32 x) {
 
 
 Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver);
+
+bool check_sudoku_is_invalid_by_no_way_to_put_digit_in_row_col_or_box(Sudoku_Solver_Struct *solver);
 
 bool check_for_naked_singles(Sudoku_Solver_Struct *solver);
 bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver);
@@ -386,8 +428,9 @@ Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver) {
             return result;
         }
 
-        if (check_for_naked_singles(&solver)) continue;
+        if (check_sudoku_is_invalid_by_no_way_to_put_digit_in_row_col_or_box(&solver)) continue;
 
+        if (check_for_naked_singles(&solver)) continue;
         if (check_for_single_in_row_col_and_box(&solver)) continue;
 
         // no deductions were made, nothing left to do here.
@@ -444,6 +487,48 @@ Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver) {
 
 
 
+bool check_sudoku_is_invalid_by_no_way_to_put_digit_in_row_col_or_box(Sudoku_Solver_Struct *solver) {
+    for (size_t row = 0; row < NUM_DIGITS; row++) {
+        u16 seen_in_xxx = 0;
+        FOREACH_CELL_IN_ROW(solver, row) {
+            if (cell->placed_digit != 0) {
+                seen_in_xxx |= DIGIT_BIT(cell->placed_digit);
+            } else {
+                seen_in_xxx |= cell->possible_digits;
+            }
+        }
+        if (seen_in_xxx != ALL_DIGIT_BITS) goto exit_failure;
+    }
+
+    for (size_t col = 0; col < NUM_DIGITS; col++) {
+        u16 seen_in_xxx = 0;
+        FOREACH_CELL_IN_COL(solver, col) {
+            if (cell->placed_digit != 0) {
+                seen_in_xxx |= DIGIT_BIT(cell->placed_digit);
+            } else {
+                seen_in_xxx |= cell->possible_digits;
+            }
+        }
+        if (seen_in_xxx != ALL_DIGIT_BITS) goto exit_failure;
+    }
+
+        for (size_t box = 0; box < NUM_DIGITS; box++) {
+        u16 seen_in_xxx = 0;
+        FOREACH_CELL_IN_BOX(solver, box) {
+            if (cell->placed_digit != 0) {
+                seen_in_xxx |= DIGIT_BIT(cell->placed_digit);
+            } else {
+                seen_in_xxx |= cell->possible_digits;
+            }
+        }
+        if (seen_in_xxx != ALL_DIGIT_BITS) goto exit_failure;
+    }
+    return false;
+
+exit_failure:
+    solver->is_invalid = true;
+    return true;
+}
 
 
 bool check_for_naked_singles(Sudoku_Solver_Struct *solver) {
@@ -470,6 +555,8 @@ bool check_for_naked_singles(Sudoku_Solver_Struct *solver) {
 }
 
 bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
+    // Extreme levels of @Copypasta in this function.
+
     // rows
     for (size_t row = 0; row < NUM_DIGITS; row++) {
         u16 bit_field[NUM_DIGITS] = ZEROED;
@@ -491,14 +578,13 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
             index_in_xxx += 1;
         }
 
-        bool was_naked_single = false;
         for (size_t digit = 1; digit <= NUM_DIGITS; digit++) {
             // could use count_trailing_zeros(~is_placed);
             if (is_placed & DIGIT_BIT(digit)) continue;
 
-            if (pop_count(bit_field[digit-1]) != 1) continue;
-
-            was_naked_single = true;
+            u32 digit_pop_count = pop_count(bit_field[digit-1]);
+            assert(digit_pop_count > 0);
+            if (digit_pop_count != 1) continue;
 
             u32 digit_loc = count_trailing_zeros(bit_field[digit-1]);
             assert(Is_Between(digit_loc, 0, NUM_DIGITS-1));
@@ -514,14 +600,11 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
             // mark_and_place_digit(&solver, digit_loc, row, digit, .no_row_check = true);
             mark_and_place_digit(solver, pos.x, pos.y, digit);
 
-            // we are still going to check the rest of the digits.
-            // even if the sudoku becomes invalid after this,
-            // its still fine to place these digits.
+            // i was going to try and continue this loop, to finish the row,
+            // but too many complications arise when trying to do that.
+            // we will visit this row again in due time.
+            return true;
         }
-        // dont check the other rows for this.
-        //
-        // we will be back here soon.
-        if (was_naked_single) return true;
     }
 
     // cols
@@ -545,14 +628,15 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
             index_in_xxx += 1;
         }
 
-        bool was_naked_single = false;
         for (size_t digit = 1; digit <= NUM_DIGITS; digit++) {
             // could use count_trailing_zeros(~is_placed);
             if (is_placed & DIGIT_BIT(digit)) continue;
 
-            if (pop_count(bit_field[digit-1]) != 1) continue;
+            u32 digit_pop_count = pop_count(bit_field[digit-1]);
+            assert(digit_pop_count > 0);
+            if (digit_pop_count != 1) continue;
 
-            was_naked_single = true;
+            if (pop_count(bit_field[digit-1]) != 1) continue;
 
             u32 digit_loc = count_trailing_zeros(bit_field[digit-1]);
             assert(Is_Between(digit_loc, 0, NUM_DIGITS-1));
@@ -568,14 +652,11 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
             // mark_and_place_digit(&solver, digit_loc, row, digit, .no_row_check = true);
             mark_and_place_digit(solver, pos.x, pos.y, digit);
 
-            // we are still going to check the rest of the digits.
-            // even if the sudoku becomes invalid after this,
-            // its still fine to place these digits.
+            // i was going to try and continue this loop, to finish the row,
+            // but too many complications arise when trying to do that.
+            // we will visit this row again in due time.
+            return true;
         }
-        // dont check the other rows for this.
-        //
-        // we will be back here soon.
-        if (was_naked_single) return true;
     }
 
     // boxs
@@ -599,14 +680,13 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
             index_in_xxx += 1;
         }
 
-        bool was_naked_single = false;
         for (size_t digit = 1; digit <= NUM_DIGITS; digit++) {
             // could use count_trailing_zeros(~is_placed);
             if (is_placed & DIGIT_BIT(digit)) continue;
 
-            if (pop_count(bit_field[digit-1]) != 1) continue;
-
-            was_naked_single = true;
+            u32 digit_pop_count = pop_count(bit_field[digit-1]);
+            assert(digit_pop_count > 0);
+            if (digit_pop_count != 1) continue;
 
             u32 digit_loc = count_trailing_zeros(bit_field[digit-1]);
             assert(Is_Between(digit_loc, 0, NUM_DIGITS-1));
@@ -622,14 +702,11 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
             // mark_and_place_digit(&solver, digit_loc, row, digit, .no_row_check = true);
             mark_and_place_digit(solver, pos.x, pos.y, digit);
 
-            // we are still going to check the rest of the digits.
-            // even if the sudoku becomes invalid after this,
-            // its still fine to place these digits.
+            // i was going to try and continue this loop, to finish the row,
+            // but too many complications arise when trying to do that.
+            // we will visit this row again in due time.
+            return true;
         }
-        // dont check the other rows for this.
-        //
-        // we will be back here soon.
-        if (was_naked_single) return true;
     }
 
     return false;
