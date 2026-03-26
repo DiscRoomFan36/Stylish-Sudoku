@@ -7,24 +7,41 @@ static_assert(NUM_DIGITS == 9, "a lot of this would have to change to allow for 
 
 
 
-typedef struct Sudoku_Digit_Grid {
+typedef struct Sudoku_Digit_Grid Sudoku_Digit_Grid;
+struct Sudoku_Digit_Grid {
     u8 digits[NUM_DIGITS][NUM_DIGITS];
-} Sudoku_Digit_Grid;
+};
 
 // the API is that you fill out this struct, then pass it into the solver, and presto!
-typedef struct {
+typedef struct Input_Sudoku_Puzzle Input_Sudoku_Puzzle;
+struct Input_Sudoku_Puzzle {
     Sudoku_Digit_Grid grid;
 
     // TODO variant sudoku's stuff.
-} Input_Sudoku_Puzzle;
+};
 
-typedef struct {
+typedef enum {
+    RFSI_NONE = 0, // not an error, just the zero value.
+
+    RFSI_BAD_USER_INPUT,         // this means the user gave an obviously bad solution.
+    RFSI_NO_POSSIBLE_SOLUTION,   // we checked, and there is not way to make a complete sudoku with this.
+    RFSI_MULTIPLE_SOLUTIONS,     // there is more than one solution.
+} Reason_For_Sudoku_Impossibility;
+
+typedef struct Sudoku_Solver_Result Sudoku_Solver_Result;
+struct Sudoku_Solver_Result {
     bool sudoku_is_possible;
+
+    // only filled out when sudoku_is_possible == false
+    Reason_For_Sudoku_Impossibility reason_not_possible;
 
     Sudoku_Digit_Grid correct_grid;
 
+    // TODO use this when there are multiple solutions.
+    // Sudoku_Digit_Grid two_different_solutions[2];
+
     // TODO maybe something about a path.
-} Sudoku_Solver_Result;
+};
 
 
 Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku);
@@ -353,6 +370,8 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver);
 
 
 Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
+    Sudoku_Solver_Result sudoku_solver_result = ZEROED;
+
     // initialize the solver
     Sudoku_Solver_Struct solver = init_solver();
 
@@ -369,21 +388,30 @@ Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
 
             Cell *cell = &solver.Cells[j][i];
             // check if the digit is possible to place.
-            if ((cell->possible_digits & DIGIT_BIT(digit)) == 0)   goto exit_failure;
+            if ((cell->possible_digits & DIGIT_BIT(digit)) == 0) {
+                sudoku_solver_result.sudoku_is_possible  = false;
+                sudoku_solver_result.reason_not_possible = RFSI_BAD_USER_INPUT;
+                return sudoku_solver_result;
+            }
 
             // the above check prevents this from panic'ing.
             mark_and_place_digit(&solver, i, j, digit);
-            if (solver.is_invalid)   goto exit_failure;
+            if (solver.is_invalid) {
+                sudoku_solver_result.sudoku_is_possible  = false;
+                sudoku_solver_result.reason_not_possible = RFSI_BAD_USER_INPUT;
+                return sudoku_solver_result;
+            }
         }
     }
 
 
     Recur_Result result = recur_and_solve_sudoku(solver);
     if (result.status == RESULT_FAIL) {
-        goto exit_failure;
+        sudoku_solver_result.sudoku_is_possible  = false;
+        sudoku_solver_result.reason_not_possible = RFSI_NO_POSSIBLE_SOLUTION;
+        return sudoku_solver_result;
     }
 
-    Sudoku_Solver_Result sudoku_solver_result = ZEROED;
     sudoku_solver_result.sudoku_is_possible = true;
     FOREACH_CELL(&result.correct_result) {
         Vec2i pos = cell_to_xy(&result.correct_result, cell);
@@ -393,12 +421,6 @@ Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
     }
 
     return sudoku_solver_result;
-
-
-
-exit_failure:
-    // the user handed us an invalid sudoku from the very begining.
-    return (Sudoku_Solver_Result){ .sudoku_is_possible = false };
 }
 
 

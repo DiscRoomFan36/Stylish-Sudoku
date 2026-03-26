@@ -271,8 +271,47 @@ void test_check_for_single_in_row_and_columns(void) {
     }
 }
 
-void test_check_for_x_wing_and_puzzles_with_multiple_solutions(void) {
-    TEST_FAIL("TODO: test_check_for_x_wing_and_puzzles_with_multiple_solutions");
+void test_check_for_puzzles_with_multiple_solutions(void) {
+    struct Test {
+        const char *test_name;
+        const char *sudoku_string;
+    } tests[] = {
+        {
+            .test_name = "puzzle is impossible, there is no way to disambiguate 8 and 9",
+            .sudoku_string =    ".1.743562"
+                                "426895317"
+                                "375612894"
+                                "794538621"
+                                "561274938"
+                                "283169475"
+                                "137486259"
+                                ".5.321746"
+                                "642957183",
+        },
+        {
+            .test_name = "empty grid, basically inf solutions",
+            .sudoku_string =    "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                "........."
+                                ".........",
+        },
+    };
+
+    for (size_t i = 0; i < Array_Len(tests); i++) {
+        struct Test test = tests[i];
+
+        Input_Sudoku_Puzzle input = sudoku_string_to_input_puzzle(test.sudoku_string);
+
+        Sudoku_Solver_Result result = Solve_Sudoku(input);
+
+        TEST_EXPECT_WITH_REASON(result.sudoku_is_possible == false, "%s", test.test_name);
+        TEST_EXPECT_EQ(result.reason_not_possible, RFSI_MULTIPLE_SOLUTIONS);
+    }
 }
 
 
@@ -339,6 +378,7 @@ void test_solver_sudoku_bad_input(void) {
         Sudoku_Solver_Result result = Solve_Sudoku(input);
 
         TEST_EXPECT_WITH_REASON(result.sudoku_is_possible == false, "%s", test.test_name);
+        TEST_EXPECT_EQ(result.reason_not_possible, RFSI_BAD_USER_INPUT);
     }
 }
 
@@ -513,7 +553,7 @@ int main(void) {
     ADD_TEST(test_check_sudoku_is_invalid_by_no_way_to_put_digit_in_row);
     ADD_TEST(test_check_for_naked_singles);
     ADD_TEST(test_check_for_single_in_row_and_columns);
-    ADD_TEST(test_check_for_x_wing_and_puzzles_with_multiple_solutions);
+    ADD_TEST(test_check_for_puzzles_with_multiple_solutions);
 
     ADD_TEST(test_solver_sudoku_bad_input);
     ADD_TEST(test_solve_sudoku_easy);
