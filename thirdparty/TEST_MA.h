@@ -896,11 +896,11 @@ TEST_MA_internal const char *TEST_MA_internal_test_index_to_test_number_text(siz
     size_t real_test_index = test_index + 1;
 
     // we dont need to add 1 to tests_count, its allready 1 higher than the max test_index
-    size_t test_number_width = TEST_MA_internal_int_log_10(TEST_MA_context.tests_count);
+    int test_number_width = TEST_MA_internal_int_log_10(TEST_MA_context.tests_count);
 
     // we are going to be returning this buffer
     TEST_MA_local_persist char test_number_text[32] = ZEROED;
-    snprintf(test_number_text, sizeof(test_number_text), "%*ld", test_number_width, real_test_index);
+    snprintf(test_number_text, sizeof(test_number_text), "%*zu", test_number_width, real_test_index);
 
     return test_number_text;
 }
@@ -928,8 +928,6 @@ int TEST_MA_internal_Run_Tests(TEST_MA_Run_Tests_Opt opt) {
         if (max_text_len < text_len) max_text_len = text_len;
     }
 
-
-    int test_number_width = TEST_MA_internal_int_log_10(TEST_MA_context.tests_count);
 
     int number_of_fails = 0;
     for (size_t test_index = 0; test_index < TEST_MA_context.tests_count; test_index++) {
