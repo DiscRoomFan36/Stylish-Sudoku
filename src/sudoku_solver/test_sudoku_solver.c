@@ -559,7 +559,7 @@ int main(void) {
     ADD_TEST(test_solve_sudoku_easy);
     ADD_TEST(test_solve_sudoku_medium);
 
-    ADD_TEST(bench_test_many_sudoku, .timeout_time = 2);
+    ADD_TEST(bench_test_many_sudoku, .timeout_time = 5);
 
     int number_of_tests_failed = RUN_TESTS(.disable_sandboxing_for_all_tests = DISABLE_SANDBOX);
     printf("number of tests failed: %d\n\n", number_of_tests_failed);

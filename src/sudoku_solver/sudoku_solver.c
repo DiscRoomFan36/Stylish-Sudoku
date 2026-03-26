@@ -38,7 +38,7 @@ struct Sudoku_Solver_Result {
     Sudoku_Digit_Grid correct_grid;
 
     // TODO use this when there are multiple solutions.
-    // Sudoku_Digit_Grid two_different_solutions[2];
+    Sudoku_Digit_Grid two_different_solutions[2];
 
     // TODO maybe something about a path.
 };
@@ -253,6 +253,19 @@ Vec2i box_and_index_to_xy(size_t box_index, size_t index_in_box) {
 
 
 
+Sudoku_Digit_Grid solver_grid_to_digit_grid(Sudoku_Solver_Struct *solver) {
+    Sudoku_Digit_Grid result = ZEROED;
+    FOREACH_CELL(solver) {
+        Vec2i pos = cell_to_xy(solver, cell);
+
+        assert(Is_Between(cell->placed_digit, 1, 9));
+        result.digits[pos.y][pos.x] = cell->placed_digit;
+    }
+    return result;
+}
+
+
+
 void mark_and_place_digit(Sudoku_Solver_Struct *solver, size_t x, size_t y, u8 digit) {
     // zero index'd
     assert(Is_Between(x, 0, NUM_DIGITS-1));
@@ -360,7 +373,7 @@ u32 count_trailing_zeros(u32 x) {
 ///////////////////////////////////////////////////////////////////////////////////////
 
 
-Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver);
+Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver, bool iterate_forwards);
 
 bool check_sudoku_is_invalid_by_no_way_to_put_digit_in_row_col_or_box(Sudoku_Solver_Struct *solver);
 
@@ -405,29 +418,50 @@ Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
     }
 
 
-    Recur_Result result = recur_and_solve_sudoku(solver);
+    Recur_Result result = recur_and_solve_sudoku(solver, true);
     if (result.status == RESULT_FAIL) {
         sudoku_solver_result.sudoku_is_possible  = false;
         sudoku_solver_result.reason_not_possible = RFSI_NO_POSSIBLE_SOLUTION;
         return sudoku_solver_result;
     }
 
-    sudoku_solver_result.sudoku_is_possible = true;
-    FOREACH_CELL(&result.correct_result) {
-        Vec2i pos = cell_to_xy(&result.correct_result, cell);
+    // i dont make this decision lightly.
+    //
+    // this will literally double the time it takes to solve any sudoku.
+    // but as long as the time it takes to solve a single sudoku is low, this wont matter.
+    // why would you even need to solve 1000 sudoku's per second anyway?
+    //
+    // "oh no! i can only solve 500 sudoku's per second, whatever shall I do???"
+    //
+    // just run multiple solvers at once at that point
+    #define CHECK_FOR_MULTIPLE_SOLUTIONS (true)
+    if (CHECK_FOR_MULTIPLE_SOLUTIONS) {
+        // we do the entire solve again, but this time, when we start to
+        // recursively check options, we iterate in reverse. this guarantees
+        // that if there is more than 1 solution, the solution generated
+        // here will be different from the first one.
+        Recur_Result second_result = recur_and_solve_sudoku(solver, false);
+        assert(second_result.status == RESULT_SUCCESS);
 
-        assert(Is_Between(cell->placed_digit, 1, 9));
-        sudoku_solver_result.correct_grid.digits[pos.y][pos.x] = cell->placed_digit;
+        bool result_is_the_same = Mem_Eq(&result.correct_result, &second_result.correct_result, sizeof(result.correct_result));
+        if (!result_is_the_same) {
+            // there were multiple different solutions
+            sudoku_solver_result.sudoku_is_possible = false;
+            sudoku_solver_result.reason_not_possible = RFSI_MULTIPLE_SOLUTIONS;
+            sudoku_solver_result.two_different_solutions[0] = solver_grid_to_digit_grid(&result.correct_result);
+            sudoku_solver_result.two_different_solutions[1] = solver_grid_to_digit_grid(&second_result.correct_result);
+            return sudoku_solver_result;
+        }
     }
 
+    sudoku_solver_result.sudoku_is_possible = true;
+    sudoku_solver_result.correct_grid = solver_grid_to_digit_grid(&result.correct_result);
     return sudoku_solver_result;
 }
 
 
 
-Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver) {
-    // TODO do extra steps to reduce the number of possibilities.
-
+Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver, bool iterate_forwards) {
     // check for deductions we can make.
     //
     // after a deduction we continue the while loop, hoping to make more.
@@ -488,13 +522,17 @@ Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver) {
 
     Cell *cell = &solver.Cells[pos.y][pos.x];
     for (size_t digit = 1; digit <= 9; digit++) {
+        // using this bool, we can decide witch way we iterate over the options,
+        // if there are multiple solutions, this will produce 2 different solutions
+        size_t real_digit = iterate_forwards ? digit : 9 - digit + 1;
+
         // make sure this digit is possible.
-        if (!(cell->possible_digits & DIGIT_BIT(digit))) continue;
+        if (!(cell->possible_digits & DIGIT_BIT(real_digit))) continue;
 
         Sudoku_Solver_Struct new_solver = solver;
-        mark_and_place_digit(&new_solver, pos.x, pos.y, digit);
+        mark_and_place_digit(&new_solver, pos.x, pos.y, real_digit);
 
-        Recur_Result result_of_recur = recur_and_solve_sudoku(new_solver);
+        Recur_Result result_of_recur = recur_and_solve_sudoku(new_solver, iterate_forwards);
 
         if (result_of_recur.status == RESULT_SUCCESS) {
             // TODO keep track of path.
