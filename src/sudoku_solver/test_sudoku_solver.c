@@ -476,10 +476,13 @@ void test_solve_sudoku_medium(void) {
 }
 
 void bench_test_many_sudoku(void) {
+    #define SUDOKU_FILE_PATH "./src/sudoku_solver/printable_sudoku_puzzle_4.txt"
+    // #define SUDOKU_FILE_PATH "./src/sudoku_solver/printable_sudoku_puzzle_5.txt"
+
     // dont really need any memory management for this.
     // but Read_Entire_File() expects a valid Arena.
     Arena a = ZEROED;
-    String many_sudoku_strings = Read_Entire_File(&a, S("./src/sudoku_solver/printable_sudoku_puzzle_4.txt"));
+    String many_sudoku_strings = Read_Entire_File(&a, S(SUDOKU_FILE_PATH));
     TEST_EXPECT_WITH_REASON(many_sudoku_strings.length != 0, "if this file dose not exist, this means i dont know what to do with the copyright for now.");
 
     u64 i = 0;
@@ -553,9 +556,6 @@ Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string) {
 
     return input;
 }
-
-
-
 
 #define BESTED_IMPLEMENTATION
 #include "Bested.h"

@@ -421,7 +421,8 @@ Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver) {
             return result;
         }
 
-        if (SOLVER_IS_SOLVED(solver)) {
+        // if (SOLVER_IS_SOLVED(solver)) {
+        if (solver.number_of_digits_left_to_place == 0) {
             Recur_Result result = ZEROED;
             result.status = RESULT_SUCCESS;
             result.correct_result = solver;

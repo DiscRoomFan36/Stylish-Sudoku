@@ -4,4 +4,4 @@ build/
 nob
 nob.old
 
-src/sudoku_solver/printable_sudoku_puzzle_4.txt
+src/sudoku_solver/printable_sudoku_puzzle_*
