@@ -4,7 +4,7 @@
 // Author   - Fletcher M
 //
 // Created  - 19/01/26
-// Modified - 24/03/26
+// Modified - 26/03/26
 //
 //
 // TEST_MA.h is a C testing library, Simply create some test,
@@ -866,6 +866,46 @@ defer:
 }
 
 
+//
+// aka how may chars would this take to print, with 0 being a special case.
+// but that probably doesn't matter?
+//
+// because all i use this for is TEST_MA_context.tests_count
+//
+TEST_MA_internal size_t TEST_MA_internal_int_log_10(size_t x) {
+    if (x == 0) return 0;
+    size_t result = 0;
+    while (x > 0) { result += 1; x /= 10; }
+    return result;
+}
+
+//
+// gets the number_text associated with a test index.
+//
+// WARNING WARNING WARNING
+//
+//      this uses a static buffer to avoid memory management issues,
+//      when you call this function more than once it override the
+//      previous instance, unlike temp_sprintf(), which has
+//      buckets to prevent simple issues.
+//
+// WARNING WARNING WARNING
+//
+TEST_MA_internal const char *TEST_MA_internal_test_index_to_test_number_text(size_t test_index) {
+    // "test number 1" is better than "test number 0"
+    size_t real_test_index = test_index + 1;
+
+    // we dont need to add 1 to tests_count, its allready 1 higher than the max test_index
+    size_t test_number_width = TEST_MA_internal_int_log_10(TEST_MA_context.tests_count);
+
+    // we are going to be returning this buffer
+    TEST_MA_local_persist char test_number_text[32] = ZEROED;
+    snprintf(test_number_text, sizeof(test_number_text), "%*ld", test_number_width, real_test_index);
+
+    return test_number_text;
+}
+
+
 
 int TEST_MA_internal_Run_Tests(TEST_MA_Run_Tests_Opt opt) {
     if (TEST_MA_context.tests_count == 0) {
@@ -878,8 +918,8 @@ int TEST_MA_internal_Run_Tests(TEST_MA_Run_Tests_Opt opt) {
 
     // find the longest test name, for formatting reasons.
     int max_text_len = 0;
-    for (size_t i = 0; i < TEST_MA_context.tests_count; i++) {
-        TEST_MA_One_Test *to_test = &TEST_MA_context.tests[i];
+    for (size_t test_index = 0; test_index < TEST_MA_context.tests_count; test_index++) {
+        TEST_MA_One_Test *to_test = &TEST_MA_context.tests[test_index];
 
         const char *test_name = to_test->real_function_name;
         if (to_test->opt.custom_name) test_name = to_test->opt.custom_name;
@@ -889,6 +929,7 @@ int TEST_MA_internal_Run_Tests(TEST_MA_Run_Tests_Opt opt) {
     }
 
 
+    int test_number_width = TEST_MA_internal_int_log_10(TEST_MA_context.tests_count);
 
     int number_of_fails = 0;
     for (size_t test_index = 0; test_index < TEST_MA_context.tests_count; test_index++) {
@@ -897,12 +938,14 @@ int TEST_MA_internal_Run_Tests(TEST_MA_Run_Tests_Opt opt) {
         const char *test_name = to_test->real_function_name;
         if (to_test->opt.custom_name) test_name = to_test->opt.custom_name;
 
+        const char *test_number_text = TEST_MA_internal_test_index_to_test_number_text(test_index);
+
         if (to_test->opt.dont_run) {
-            printf(WC(TEST_MA_COLOR_GRAY,  "Passing Test %ld: %-*s") "\n\n", test_index, max_text_len, test_name);
-            continue;;
+            printf(WC(TEST_MA_COLOR_GRAY,  "Passing Test %s: %-*s") "\n\n", test_number_text, max_text_len, test_name);
+            continue;
         }
 
-        printf("Running Test %ld: " WC(TEST_MA_COLOR_YELLOW, "%-*s") "\n", test_index, max_text_len, test_name);
+        printf("Running Test %s: " WC(TEST_MA_COLOR_YELLOW, "%-*s") "\n", test_number_text, max_text_len, test_name);
 
 
         // actually run the test here.
@@ -910,20 +953,22 @@ int TEST_MA_internal_Run_Tests(TEST_MA_Run_Tests_Opt opt) {
 
 
         if (!to_test->test_failed) {
-            printf("Test " WC(TEST_MA_COLOR_GREEN, "Passed") "  %ld: " WC(TEST_MA_COLOR_YELLOW, "%s") "\n", test_index, test_name);
+            printf("Test " WC(TEST_MA_COLOR_GREEN, "Passed") "  %s: " WC(TEST_MA_COLOR_YELLOW, "%s") "\n", test_number_text, test_name);
         } else {
             number_of_fails += 1;
-            printf("Test " WC(TEST_MA_COLOR_RED, "Failed") "  %ld: " WC(TEST_MA_COLOR_YELLOW, "%s") "\n", test_index, test_name);
+            printf("Test " WC(TEST_MA_COLOR_RED, "Failed") "  %s: " WC(TEST_MA_COLOR_YELLOW, "%s") "\n", test_number_text, test_name);
             printf("    " WC(TEST_MA_COLOR_RED, "%s") "\n", to_test->reason_for_test_failure);
         }
         printf("\n");
     }
 
-    for (size_t i = 0; i < TEST_MA_context.tests_count; i++) {
-        TEST_MA_One_Test *to_test = &TEST_MA_context.tests[i];
+    for (size_t test_index = 0; test_index < TEST_MA_context.tests_count; test_index++) {
+        TEST_MA_One_Test *to_test = &TEST_MA_context.tests[test_index];
 
         const char *test_name = to_test->real_function_name;
         if (to_test->opt.custom_name) test_name = to_test->opt.custom_name;
+
+        const char *test_number_text = TEST_MA_internal_test_index_to_test_number_text(test_index);
 
         const char *status_text = WC(TEST_MA_COLOR_GRAY, "PASS");
         if (!to_test->opt.dont_run) {
@@ -935,8 +980,8 @@ int TEST_MA_internal_Run_Tests(TEST_MA_Run_Tests_Opt opt) {
         }
 
         printf(
-            "TEST %ld: " WC(TEST_MA_COLOR_YELLOW, "%-*s") " - STATUS: %s\n",
-            i, max_text_len, test_name, status_text
+            "TEST %s: " WC(TEST_MA_COLOR_YELLOW, "%-*s") " - STATUS: %s\n",
+            test_number_text, max_text_len, test_name, status_text
         );
     }
 
