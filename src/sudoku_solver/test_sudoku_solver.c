@@ -1,5 +1,6 @@
 
-#include "./sudoku_solver.c"
+#define SUDOKU_SOLVER_IMPLEMENTATION
+#include "./sudoku_solver.h"
 
 #include "TEST_MA.h"
 
@@ -516,13 +517,35 @@ void test_solve_sudoku_medium(void) {
 }
 
 void bench_test_many_sudoku(void) {
-    #define SUDOKU_FILE_PATH "./src/sudoku_solver/printable_sudoku_puzzle_4.txt"
-    // #define SUDOKU_FILE_PATH "./src/sudoku_solver/printable_sudoku_puzzle_5.txt"
+    const char *sudoku_file_path = "./src/sudoku_solver/printable_sudoku_puzzle_4.txt";
 
     // dont really need any memory management for this.
     // but Read_Entire_File() expects a valid Arena.
     Arena a = ZEROED;
-    String many_sudoku_strings = Read_Entire_File(&a, S(SUDOKU_FILE_PATH));
+    String many_sudoku_strings = Read_Entire_File(&a, S(sudoku_file_path));
+    TEST_EXPECT_WITH_REASON(many_sudoku_strings.length != 0, "if this file dose not exist, this means i dont know what to do with the copyright for now.");
+
+    u64 i = 0;
+    while (true) {
+        String line = String_Get_Next_Line(&many_sudoku_strings, &i, SGNL_Trim);
+        if (line.length == 0) break;
+
+        Input_Sudoku_Puzzle input = sudoku_string_to_input_puzzle(temp_String_To_C_Str(line));
+        if (line.length != 9*9) TEST_FAIL("line length was not 9*9 was %ld", line.length);
+
+        Sudoku_Solver_Result result = Solve_Sudoku(input);
+        if (!result.sudoku_is_possible)   TEST_FAIL("Sudoku %zu was not possible", i);
+    }
+    TEST_EXPECT_WITH_REASON(true, "finished %zu sudoku's", i);
+}
+
+void bench_test_many_harder_sudoku(void) {
+    const char *sudoku_file_path = "./src/sudoku_solver/printable_sudoku_puzzle_5.txt";
+
+    // dont really need any memory management for this.
+    // but Read_Entire_File() expects a valid Arena.
+    Arena a = ZEROED;
+    String many_sudoku_strings = Read_Entire_File(&a, S(sudoku_file_path));
     TEST_EXPECT_WITH_REASON(many_sudoku_strings.length != 0, "if this file dose not exist, this means i dont know what to do with the copyright for now.");
 
     u64 i = 0;
@@ -559,7 +582,9 @@ int main(void) {
     ADD_TEST(test_solve_sudoku_easy);
     ADD_TEST(test_solve_sudoku_medium);
 
-    ADD_TEST(bench_test_many_sudoku, .timeout_time = 5);
+    // give these 3 seconds each, if they fail, that just means my solver wasn't fast enough.
+    ADD_TEST(bench_test_many_sudoku,        .timeout_time = 3);
+    ADD_TEST(bench_test_many_harder_sudoku, .timeout_time = 3);
 
     int number_of_tests_failed = RUN_TESTS(.disable_sandboxing_for_all_tests = DISABLE_SANDBOX);
     printf("number of tests failed: %d\n\n", number_of_tests_failed);

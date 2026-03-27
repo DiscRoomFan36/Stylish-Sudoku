@@ -1,4 +1,8 @@
 
+#ifndef SUDOKU_SOLVER_H
+#define SUDOKU_SOLVER_H
+
+
 #include "Bested.h"
 
 
@@ -17,9 +21,11 @@ typedef struct Input_Sudoku_Puzzle Input_Sudoku_Puzzle;
 struct Input_Sudoku_Puzzle {
     Sudoku_Digit_Grid grid;
 
-    // TODO variant sudoku's stuff.
+    // TODO variant sudoku stuff.
 };
 
+
+// enum to roughly explain why a sudoku is impossible.
 typedef enum {
     RFSI_NONE = 0, // not an error, just the zero value.
 
@@ -28,27 +34,49 @@ typedef enum {
     RFSI_MULTIPLE_SOLUTIONS,     // there is more than one solution.
 } Reason_For_Sudoku_Impossibility;
 
+
+//
+// the result from the Solve_Sudoku() function
+//
 typedef struct Sudoku_Solver_Result Sudoku_Solver_Result;
 struct Sudoku_Solver_Result {
     bool sudoku_is_possible;
 
-    // only filled out when sudoku_is_possible == false
-    Reason_For_Sudoku_Impossibility reason_not_possible;
-
+    // is filled out when the sudoku is possible, and contains the answer.
     Sudoku_Digit_Grid correct_grid;
 
-    // TODO use this when there are multiple solutions.
+
+    // only filled out when sudoku_is_possible == false
+    Reason_For_Sudoku_Impossibility reason_not_possible;
+    // these are set when your input has more than one valid solution.
     Sudoku_Digit_Grid two_different_solutions[2];
 
-    // TODO maybe something about a path.
+
+    // TODO maybe something about a path the solver took.
 };
 
-
+//
+// simply construct an input sudoku, and after a small amount of time.
+// (sudoku solvers are pretty fast), receive a result,
+//
+// if it was able to be completed, you are given the completed grid.
+//
+// this can also tell when a puzzle has more than one solution.
+// this counts as a not possible sudoku. (and is one of the reasons for failure.)
+//
 Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku);
 
 
+#endif // SUDOKU_SOLVER_H
 
 
+
+
+
+
+
+
+#ifdef SUDOKU_SOLVER_IMPLEMENTATION
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //                              Internal Structures
@@ -772,4 +800,7 @@ bool check_for_single_in_row_col_and_box(Sudoku_Solver_Struct *solver) {
 
     return false;
 }
+
+
+#endif // SUDOKU_SOLVER_IMPLEMENTATION
 
