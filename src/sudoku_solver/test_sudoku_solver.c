@@ -516,6 +516,70 @@ void test_solve_sudoku_medium(void) {
     }
 }
 
+
+void test_generate_random_sudoku(void) {
+    struct Test {
+        const char *test_name;
+        int number_of_digits_in_puzzle;
+        bool allowed_to_fail;
+    } tests[] = {
+        {
+            .test_name = "full grid",
+            .number_of_digits_in_puzzle = 9*9,
+            .allowed_to_fail = false,
+        },
+        {
+            .test_name = "half grid",
+            .number_of_digits_in_puzzle = (9*9) / 2,
+            .allowed_to_fail = false,
+        },
+        {
+            .test_name = "25 cells",
+            .number_of_digits_in_puzzle = 25,
+            .allowed_to_fail = true,
+        },
+        {
+            .test_name = "20 cells",
+            .number_of_digits_in_puzzle = 20,
+            .allowed_to_fail = true,
+        },
+        {
+            .test_name = "17 cells, minimum",
+            .number_of_digits_in_puzzle = 17,
+            .allowed_to_fail = true,
+        },
+    };
+
+    for (size_t k = 0; k < Array_Len(tests); k++) {
+        struct Test test = tests[k];
+        Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(test.number_of_digits_in_puzzle);
+
+        Input_Sudoku_Puzzle input = (Input_Sudoku_Puzzle){ .grid = random_sudoku, };
+        Sudoku_Solver_Result sudoku_solver_result = Solve_Sudoku(input);
+
+        TEST_EXPECT_WITH_REASON(sudoku_solver_result.sudoku_is_possible, "%s", test.test_name);
+
+        int num_empty_cells = 0;
+        for (size_t j = 0; j < Array_Len(random_sudoku.digits); j++) {
+            for (size_t i = 0; i < Array_Len(random_sudoku.digits[0]); i++) {
+                if (random_sudoku.digits[j][i] == 0) num_empty_cells += 1;
+            }
+        }
+
+        int filled_cells = 9*9 - num_empty_cells;
+        if (!test.allowed_to_fail) {
+            TEST_EXPECT_EQ(filled_cells, test.number_of_digits_in_puzzle);
+        } else {
+            TEST_PRINTF("    %s: num filled -> %d\n", test.test_name, filled_cells);
+            TEST_EXPECT(filled_cells >= test.number_of_digits_in_puzzle);
+        }
+
+    }
+}
+
+
+
+
 void bench_test_many_sudoku(void) {
     const char *sudoku_file_path = "./src/sudoku_solver/printable_sudoku_puzzle_4.txt";
 
@@ -581,6 +645,8 @@ int main(void) {
     ADD_TEST(test_solver_sudoku_bad_input);
     ADD_TEST(test_solve_sudoku_easy);
     ADD_TEST(test_solve_sudoku_medium);
+
+    ADD_TEST(test_generate_random_sudoku);
 
     // give these 3 seconds each, if they fail, that just means my solver wasn't fast enough.
     ADD_TEST(bench_test_many_sudoku,        .timeout_time = 3);
