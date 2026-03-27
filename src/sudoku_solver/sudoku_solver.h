@@ -104,7 +104,6 @@ Sudoku_Digit_Grid Generate_Random_Sudoku(u32 num_digits_in_puzzle);
 
 
 
-#define SUDOKU_SOLVER_IMPLEMENTATION // nocheckin
 #ifdef SUDOKU_SOLVER_IMPLEMENTATION
 
 ///////////////////////////////////////////////////////////////////////////////////////
