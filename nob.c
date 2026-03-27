@@ -24,7 +24,7 @@ static Cmd cmd = {0};
 #define ARGUMENTS                                               \
     X(help,         "prints this help message and quits")       \
     X(all,          "build all targets. [debug, release, wasm]")        \
-    X(clean,        "clean up all build artifacts, happens before all other commands, so 'all clean' will clean everything, then build everything.")        \
+    X(clean,        "clean up all build artifacts, (including autosaves), happens before all other commands, so 'all clean' will clean everything, then build everything.")        \
     X(run_tests,    "build and run the tests")                  \
     X(debug,        "build   debug native version")             \
     X(release,      "build release native version")             \
