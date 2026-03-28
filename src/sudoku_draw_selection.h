@@ -8,25 +8,10 @@
 //                         Selected Animation Header
 ///////////////////////////////////////////////////////////////////////////
 
-
-typedef struct {
-    // how far along in the animation it is.
-    // [0..1]
-    f64 t_animation;
-
-    Sudoku_UI_Grid prev_ui_state;
-    Sudoku_UI_Grid curr_ui_state;
-
-} Selected_Animation;
-
-typedef struct {
-    _Array_Header_;
-    Selected_Animation *items;
-} Selected_Animation_Array;
-
+// TODO just move to sudoku_grid.h
 
 // the main function for this file.
-void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation);
+void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds);
 
 
 
@@ -309,8 +294,15 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
 //        The Big One  /  Main  /  Draw Sudoku Selection
 //////////////////////////////////////////////////////////////////
 
-void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
+void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
+    Context *context = get_context();
+
     ASSERT(sudoku);
+
+    Selected_Animation *animation = NULL;
+    if (sudoku->selection_animation_array.count > 0) {
+        animation = &sudoku->selection_animation_array.items[0];
+    }
 
     if (!animation) {
         Sudoku_UI_Grid *ui = &sudoku->ui;
@@ -321,10 +313,10 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                 Surrounding_Bools surrounding_is_selected = get_surrounding_is_selected(ui, i, j);
                 Surrounding_Bools draw_lines = surrounding_is_selected_to_draw_lines(surrounding_is_selected);
 
-                Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
+                Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
                 Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-                Color color = context.theme.select_highlight;
+                Color color = context->theme.select_highlight;
 
                 draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines, color);
             }
@@ -366,50 +358,50 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                 // previous_surrounding_is_selected
                 Surrounding_Bools psis = prev_surrounding_is_selected_grid[j][i];
 
-                Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
+                Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
                 Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-                Color color = context.theme.select_highlight;
+                Color color = context->theme.select_highlight;
 
-                bool prev_no_surrunding_selected = !psis.up && !psis.right && !psis.down && !psis.left;
-                bool curr_no_surrunding_selected = !csis.up && !csis.right && !csis.down && !csis.left;
+                bool prev_no_surrounding_selected = !psis.up && !psis.right && !psis.down && !psis.left;
+                bool curr_no_surrounding_selected = !csis.up && !csis.right && !csis.down && !csis.left;
 
                 bool curr_only_up                =  csis.up && !csis.right && !csis.down && !csis.left;
                 bool curr_only_right             = !csis.up &&  csis.right && !csis.down && !csis.left;
                 bool curr_only_down              = !csis.up && !csis.right &&  csis.down && !csis.left;
                 bool curr_only_left              = !csis.up && !csis.right && !csis.down &&  csis.left;
 
-                if (prev_no_surrunding_selected && curr_no_surrunding_selected) {
-                    // idealy we would want all massive selections to shrink into themseleves,
+                if (prev_no_surrounding_selected && curr_no_surrounding_selected) {
+                    // ideally we would want all massive selections to shrink into themselves,
                     // but i have no idea how to do that...
                     //
                     // grab all lines, make bounding box, shrink bounding box.
                     // make all lines be within the box...
                     //
-                    // TODO this could work
+                    // TODO this could work ^
                     select_bounds = ShrinkRectanglePercent(select_bounds, 1-factor);
 
-                } else if (prev_no_surrunding_selected && curr_only_up)    {
+                } else if (prev_no_surrounding_selected && curr_only_up)    {
                     select_bounds.height  *= 1-factor;
                     psis.up = true; // remove top edge of the select
                     // remove the down edge of the thing up.
                     curr_surrounding_is_selected_grid[j-1][i  ].down = true;
 
-                } else if (prev_no_surrunding_selected && curr_only_right) {
+                } else if (prev_no_surrounding_selected && curr_only_right) {
                     select_bounds.x += select_bounds.width  * factor;
                     select_bounds.width  *= 1-factor;
                     psis.right = true; // remove right edge of the select
                     // remove the left edge of the thing right.
                     curr_surrounding_is_selected_grid[j  ][i+1].left = true;
 
-                } else if (prev_no_surrunding_selected && curr_only_down)  {
+                } else if (prev_no_surrounding_selected && curr_only_down)  {
                     select_bounds.y += select_bounds.height * factor;
                     select_bounds.height *= 1-factor;
                     psis.down = true; // remove down edge of the select
                     // remove the up edge of the thing down.
                     curr_surrounding_is_selected_grid[j+1][i  ].up = true;
 
-                } else if (prev_no_surrunding_selected && curr_only_left)  {
+                } else if (prev_no_surrounding_selected && curr_only_left)  {
                     select_bounds.width  *= 1-factor;
                     psis.left = true; // remove left edge of the select
                     // remove the right edge of the thing left.
@@ -418,7 +410,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
                 } else {
                     // else just fade away.
-                    // the big shrink is comeing. run
+                    // the big shrink is coming. run
                     color = Fade(color, 1-factor);
                 }
 
@@ -437,10 +429,10 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
 
             Surrounding_Bools csis = curr_surrounding_is_selected_grid[j][i];
 
-            Rectangle cell_bounds       = get_cell_bounds(sudoku, i, j);
+            Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
             Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-            Color color = context.theme.select_highlight;
+            Color color = context->theme.select_highlight;
 
             // if it was the same as last time, just render them normally.
             if (cell_is_selected(prev_ui, i, j)) {
@@ -539,13 +531,13 @@ void draw_sudoku_selection(Sudoku *sudoku, Selected_Animation *animation) {
                     // not happen, and the animation looks kinda fucked up.
                     //
                     // the interplay between de-selection and selection animations,
-                    // are the kind of edge cases programmers have nighmares about.
+                    // are the kind of edge cases programmers have nightmares about.
                     //
                     // instead of playing wack-a-mole with these edges,
                     // the animations will stay messed up, until a later date
                     // (aka probably never) wherein I replace this entire system
                     // for something more advanced and complicated,
-                    // but wouldnt have to deal with these bugs by definition.
+                    // but wouldn't have to deal with these bugs by definition.
                     // (aka the new system would handle it by definition.)
                     //
                     // TODO be a better programmer some day

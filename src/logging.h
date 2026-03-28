@@ -97,6 +97,8 @@ internal void print_logged_message(Logged_Message log) {
 
 
 void log_impl(Log_Level level, const char *message, const char *file, s32 line) {
+    Context *context = get_context();
+
     // no newlines at the end please.
     ASSERT(message[strlen(message)-1] != '\n');
 
@@ -117,7 +119,7 @@ void log_impl(Log_Level level, const char *message, const char *file, s32 line) 
 
     print_logged_message(log);
 
-    Array_Append(&context.logged_messages_to_display, log);
+    Array_Append(&context->logged_messages_to_display, log);
 }
 
 
@@ -128,9 +130,11 @@ void log_impl(Log_Level level, const char *message, const char *file, s32 line) 
 // so do not put the result into strlen(),
 // it will measure the whole of the array.
 internal String_Array string_split_by(String input, const char *split_by) {
+    Context *context = get_context();
+
     String needle = S(split_by);
 
-    String_Array result = { .allocator = context.scratch };
+    String_Array result = { .allocator = context->scratch };
 
     while (true) {
         s64 index = String_Find_Index_Of(input, needle);
@@ -174,7 +178,9 @@ typedef struct {
     _wrap_text_with_font_and_size(text, font_and_size, max_width, (wrap_text_with_font_and_size_Opt){ __VA_ARGS__ })
 
 internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size font_and_size, s32 max_width, wrap_text_with_font_and_size_Opt opt) {
-    String_Array result = { .allocator = context.scratch };
+    Context *context = get_context();
+
+    String_Array result = { .allocator = context->scratch };
 
 
     // we'll do something special with these later.
@@ -268,19 +274,21 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
 
 
 void draw_logger_frame(s32 x, s32 y) {
+    Context *context = get_context();
+
     const f64 time_until_message_fades_away_in_seconds = 5;
 
     f64 dt = get_input()->time.dt / time_until_message_fades_away_in_seconds;
 
     // update
-    for (u64 i = 0; i < context.logged_messages_to_display.count; i++) {
-        Logged_Message *log = &context.logged_messages_to_display.items[i];
+    for (u64 i = 0; i < context->logged_messages_to_display.count; i++) {
+        Logged_Message *log = &context->logged_messages_to_display.items[i];
 
         log->t += dt;
         if (log->t >= 1) {
             // remove it.
             Scratch_Release(log->allocator);
-            Array_Remove(&context.logged_messages_to_display, i, 1);
+            Array_Remove(&context->logged_messages_to_display, i, 1);
             i -= 1;
         }
     }
@@ -295,8 +303,8 @@ void draw_logger_frame(s32 x, s32 y) {
 
     // draw
     s32 yy = 0;
-    for (u64 i = 0; i < context.logged_messages_to_display.count; i++) {
-        Logged_Message log = context.logged_messages_to_display.items[i];
+    for (u64 i = 0; i < context->logged_messages_to_display.count; i++) {
+        Logged_Message log = context->logged_messages_to_display.items[i];
 
         const char *formatted_message = temp_format_message(log);
 
@@ -308,11 +316,11 @@ void draw_logger_frame(s32 x, s32 y) {
         position.y += y;
 
 
-        Color text_color = context.theme.logger.text_color;
-        if (log.level == LOG_LEVEL_ERROR) text_color = context.theme.logger.error_text_color;
+        Color text_color = context->theme.logger.text_color;
+        if (log.level == LOG_LEVEL_ERROR) text_color = context->theme.logger.error_text_color;
 
-        Color color_background = context.theme.logger.box_background;
-        Color color_frame = context.theme.logger.box_frame_color;
+        Color color_background = context->theme.logger.box_background;
+        Color color_frame = context->theme.logger.box_frame_color;
 
 
         if (log.t > LOGGER_BEFORE_START_FADE_OUT) {

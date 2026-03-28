@@ -81,8 +81,30 @@ typedef struct {
 
 } Sudoku_UI_Grid;
 
+
+
+// TODO bring the sudoku_draw_selection.h code into this file.
+typedef struct {
+    // how far along in the animation it is.
+    // [0..1]
+    f64 t_animation;
+
+    Sudoku_UI_Grid prev_ui_state;
+    Sudoku_UI_Grid curr_ui_state;
+
+} Selected_Animation;
+
+typedef struct {
+    _Array_Header_;
+    Selected_Animation *items;
+} Selected_Animation_Array;
+
+
+
 // SOA style, probably a bit overkill.
 typedef struct {
+    // TODO put everything grid into one struct.
+    // team fat struct.
     Sudoku_Grid grid;
     Sudoku_UI_Grid ui;
 
@@ -99,6 +121,9 @@ typedef struct {
     // the last item in this buffer is always the current grid.
     Sudoku_Grid_Array undo_buffer;
     u32 redo_count; // how many times you can redo.
+
+
+    Selected_Animation_Array selection_animation_array;
 } Sudoku;
 
 
@@ -130,9 +155,9 @@ typedef struct {
     u32 *color_bitfield;
 
     // im trying out not depending on the structures in sudoku.
-    // but it mught just make it harder to work with.
+    // but it might just make it harder to work with.
     //
-    // having to (*) every time i want to accsess something is annoying...
+    // having to (*) every time i want to access something is annoying...
     struct Sudoku_UI *ui;
 } Sudoku_Cell;
 
@@ -148,7 +173,7 @@ internal Sudoku_Cell get_cell(Sudoku *sudoku, s8 i, s8 j);
 
 internal bool cell_is_selected(Sudoku_UI_Grid *ui, s8 i, s8 j);
 
-internal Rectangle get_cell_bounds(Sudoku *sudoku, s8 i, s8 j);
+internal Rectangle get_cell_bounds_1(Sudoku *sudoku, s8 i, s8 j);
 
 
 typedef struct {
@@ -258,30 +283,32 @@ bool cell_is_selected(Sudoku_UI_Grid *ui, s8 i, s8 j) {
 
 
 
-Rectangle get_cell_bounds(Sudoku *sudoku, s8 i, s8 j) {
-    // while this dosnt nessesarily cause problems, i want this to be
-    // used wherever get_cell is, and them having the same properties is nice
-    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+Rectangle get_cell_bounds_1(Sudoku *sudoku, s8 i, s8 j) {
+    PANIC("dont call this function, get rid of this function.");
 
-    (void) sudoku; // maybe this will tell us where we are, someday.
+    // // while this dosnt nessesarily cause problems, i want this to be
+    // // used wherever get_cell is, and them having the same properties is nice
+    // ASSERT_VALID_SUDOKU_ADDRESS(i, j);
 
-    Vector2 top_left_corner = {
-        (context.window_width /2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
-        (context.window_height/2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
-    };
+    // (void) sudoku; // maybe this will tell us where we are, someday.
 
-    Rectangle sudoku_cell = {
-        top_left_corner.x + (i*SUDOKU_CELL_SIZE) + ((i/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
-        top_left_corner.y + (j*SUDOKU_CELL_SIZE) + ((j/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
-        SUDOKU_CELL_SIZE,
-        SUDOKU_CELL_SIZE,
-    };
+    // Vector2 top_left_corner = {
+    //     (context.window_width /2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
+    //     (context.window_height/2) - ((SUDOKU_SIZE*SUDOKU_CELL_SIZE) + (2*(SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)))/2,
+    // };
 
-    // // everything is MUCH nicer when this is the case.
-    // sudoku_cell.x = Round(sudoku_cell.x);
-    // sudoku_cell.y = Round(sudoku_cell.y);
+    // Rectangle sudoku_cell = {
+    //     top_left_corner.x + (i*SUDOKU_CELL_SIZE) + ((i/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
+    //     top_left_corner.y + (j*SUDOKU_CELL_SIZE) + ((j/3) * (SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2)),
+    //     SUDOKU_CELL_SIZE,
+    //     SUDOKU_CELL_SIZE,
+    // };
 
-    return sudoku_cell;
+    // // // everything is MUCH nicer when this is the case.
+    // // sudoku_cell.x = Round(sudoku_cell.x);
+    // // sudoku_cell.y = Round(sudoku_cell.y);
+
+    // return sudoku_cell;
 }
 
 
@@ -608,6 +635,9 @@ internal const char *load_sudoku_version_2(String file, Sudoku *result) {
 
         result->undo_buffer.count  -= save_struct->redo_count;
         result->redo_count          = save_struct->redo_count;
+
+        // we dont do anything to this guy. its more of a runtime thing.
+        // result->selection_animation_array
     }
     return NULL;
 }

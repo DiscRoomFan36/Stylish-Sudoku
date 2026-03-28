@@ -44,6 +44,18 @@ typedef struct {
 
 
 
+typedef struct Draw_Sudoku_Boundary {
+    // integer rectangle
+    s32 x, y, width, height;
+
+    // min of width and height
+    s32 size;
+
+    // size / 9
+    double cell_size;
+} Draw_Sudoku_Boundary;
+
+
 
 #include "sudoku_grid.h"
 #include "sound.h"
@@ -52,6 +64,29 @@ typedef struct {
 
 // for 'draw_sudoku_selection()'
 #include "sudoku_draw_selection.h"
+
+#include "sudoku_solver/sudoku_solver.h"
+
+
+
+// TODO put this somewhere better
+
+Rectangle get_cell_bounds_with_bounds(Draw_Sudoku_Boundary bounds, s8 i, s8 j) {
+    // while this doesn't necessarily cause problems, i want this to be
+    // used wherever get_cell is, and them having the same properties is nice
+    ASSERT_VALID_SUDOKU_ADDRESS(i, j);
+
+    Rectangle sudoku_cell = {
+        bounds.x + i * bounds.cell_size,
+        bounds.y + j * bounds.cell_size,
+        bounds.cell_size,
+        bounds.cell_size,
+    };
+
+    // maybe round this down, have pixel perfect cells.
+
+    return sudoku_cell;
+}
 
 
 
@@ -111,10 +146,10 @@ typedef struct {
             Color invalid_builder;
             Color invalid_solver;
 
-            Color   valid_marking_certen;
-            Color   valid_marking_uncerten;
-            Color invalid_marking_certen;
-            Color invalid_marking_uncerten;
+            Color   valid_marking_certain;
+            Color   valid_marking_uncertain;
+            Color invalid_marking_certain;
+            Color invalid_marking_uncertain;
         } cell_text;
 
         // turn "nth bit set" into a color
@@ -205,13 +240,15 @@ typedef struct {
 
     Input input;
 
-    Selected_Animation_Array    selection_animation_array;
     A_Sound_Array               global_sound_array;
     Logged_Message_Array        logged_messages_to_display;
 
 
     Sudoku sudoku_base;
     Sudoku *sudoku;
+
+    // TODO is this the right place for this.
+    bool in_solve_mode;
 
 
     RenderTexture2D debug_texture;
@@ -222,17 +259,23 @@ typedef struct {
 } Context;
 
 
-global_variable Context context = ZEROED;
+global_variable Context __context_base = ZEROED;
 
 internal void   init_context(void);
 internal void uninit_context(void);
 
 //
-// NOTE. The difference between saying 'Scratch_Get()' and 'Pool_Get(&context.pool)'
+// doing this to help me know where im getting
+// the context from in each function.
+//
+internal Context *get_context(void) { return &__context_base; }
+
+//
+// NOTE. The difference between saying 'Scratch_Get()' and 'Pool_Get(&context->pool)'
 //
 // 'Scratch_Get()' implies that you will eventually call 'Scratch_Release()'
 //
-// 'Pool_Get(&context.pool)' says that you indend to hold this Arena for the entire program.
+// 'Pool_Get(&context->pool)' says that you indend to hold this Arena for the entire program.
 //
 internal Arena *Scratch_Get(void);
 internal void   Scratch_Release(Arena *scratch);
@@ -240,17 +283,22 @@ internal void   Scratch_Release(Arena *scratch);
 
 
 void init_context(void) {
-    context.window_width  = GetScreenWidth();
-    context.window_height = GetScreenHeight();
+    Context *context = get_context();
+
+    // just making sure.
+    Mem_Zero_Struct(context);
+
+    context->window_width  = GetScreenWidth();
+    context->window_height = GetScreenHeight();
 
 
-    context.debug_draw_smaller_cell_hitbox  = false;
-    context.debug_draw_cursor_position      = false;
-    context.debug_draw_color_points         = false;
-    context.debug_draw_fps                  = false;
+    context->debug_draw_smaller_cell_hitbox  = false;
+    context->debug_draw_cursor_position      = false;
+    context->debug_draw_color_points         = false;
+    context->debug_draw_fps                  = false;
 
 
-    Mem_Zero_Struct(&context.pool);
+    Mem_Zero_Struct(&context->pool);
 
     // SDL_RenderCoordinatesFromWindow
 
@@ -258,34 +306,44 @@ void init_context(void) {
     // get emscripten to allocate memory with my arena allocators, this is a
     // hack to give me a bit of room to work with.
     //
-    // this allocates 32 MB sort of unessessarily.
+    // this allocates 32 MB, might be unecessary.
+    //
     // still less than 1 javascript object.
     local_persist u8 buffers[NUM_POOL_ARENAS][1 * MEGABYTE];
     for (u32 i = 0; i < NUM_POOL_ARENAS; i++) {
-        Arena_Add_Buffer_As_Storeage_Space(&context.pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
+        Arena_Add_Buffer_As_Storeage_Space(&context->pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
     }
 
 
-    context.scratch = Pool_Get(&context.pool);
+    context->scratch = Pool_Get(&context->pool);
 
-    Mem_Zero_Struct(&context.input);
+    Mem_Zero_Struct(&context->input);
 
-    Mem_Zero_Struct(&context.selection_animation_array      );
-    Mem_Zero_Struct(&context.global_sound_array             );
-    Mem_Zero_Struct(&context.logged_messages_to_display     );
-
-
-    context.selection_animation_array   .allocator = Pool_Get(&context.pool);
-    context.global_sound_array          .allocator = Pool_Get(&context.pool);
-    context.logged_messages_to_display  .allocator = Pool_Get(&context.pool);
+    Mem_Zero_Struct(&context->global_sound_array             );
+    Mem_Zero_Struct(&context->logged_messages_to_display     );
 
 
+    context->global_sound_array          .allocator = Pool_Get(&context->pool);
+    context->logged_messages_to_display  .allocator = Pool_Get(&context->pool);
 
-    // make sure that load_sudoku(), respects this alloctor
-    context.sudoku = &context.sudoku_base;
-    context.sudoku->undo_buffer.allocator = Pool_Get(&context.pool);
-    Array_Reserve(&context.sudoku->undo_buffer, 512); // just give it some room.
 
+    {
+        // zero all the things.
+        Mem_Zero_Struct(&context->sudoku_base);
+
+        // make sure that load_sudoku(), respects this allocator
+        context->sudoku = &context->sudoku_base;
+        context->sudoku->undo_buffer.allocator = Pool_Get(&context->pool);
+        Array_Reserve(&context->sudoku->undo_buffer, 512); // just give it some room.
+
+        // zero the selection animation array inside the sudoku.
+        // also give it an allocator.
+        Mem_Zero_Struct(&context->sudoku->selection_animation_array);
+        context->sudoku->selection_animation_array.allocator = Pool_Get(&context->pool);
+    }
+
+
+    context->in_solve_mode = true;
 
     // the perhaps better option would be to make DebugDraw## versions of the draw
     // functions that buffer the commands until later, but that would require
@@ -293,15 +351,15 @@ void init_context(void) {
     //
     // another option would be to somehow draw rectangles with depth,
     // and make debug stuff the most important.
-    context.debug_texture = LoadRenderTexture(context.window_width, context.window_height);
+    context->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
 
-#define DebugDraw(draw_call) do { BeginTextureMode(context.debug_texture); (draw_call);  EndTextureMode(); } while (0)
+#define DebugDraw(draw_call) do { BeginTextureMode(context->debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
 
 
 
     { // theme stuff
-        Mem_Zero_Struct(&context.theme);
+        Mem_Zero_Struct(&context->theme);
 
 
         // https://coolors.co/visualizer/7f5539-a68a64-ede0d4-656d4a-414833
@@ -314,29 +372,29 @@ void init_context(void) {
         const Color pallet_select = rgb(0, 162, 255);
         const Color pallet_error = rgb(255, 55, 0);
 
-        context.theme.background = pallet_3;
+        context->theme.background = pallet_3;
 
-        context.theme.sudoku.cell_background    = pallet_3;
-        context.theme.sudoku.cell_lines         = pallet_4;
-        context.theme.sudoku.box_lines          = pallet_5;
+        context->theme.sudoku.cell_background    = pallet_3;
+        context->theme.sudoku.cell_lines         = pallet_4;
+        context->theme.sudoku.box_lines          = pallet_5;
 
 
-        context.theme.sudoku.cell_text.  valid_builder           = pallet_5;
-        context.theme.sudoku.cell_text.  valid_solver            = pallet_select;
-        context.theme.sudoku.cell_text.  valid_marking_certen    = pallet_select;
-        context.theme.sudoku.cell_text.  valid_marking_uncerten  = pallet_select;
+        context->theme.sudoku.cell_text.  valid_builder            = pallet_5;
+        context->theme.sudoku.cell_text.  valid_solver             = pallet_select;
+        context->theme.sudoku.cell_text.  valid_marking_certain    = pallet_select;
+        context->theme.sudoku.cell_text.  valid_marking_uncertain  = pallet_select;
 
-        context.theme.sudoku.cell_text.invalid_builder           = pallet_5; // TODO make this striped
-        context.theme.sudoku.cell_text.invalid_solver            = pallet_error;
-        context.theme.sudoku.cell_text.invalid_marking_certen    = pallet_error;
-        context.theme.sudoku.cell_text.invalid_marking_uncerten  = pallet_error;
+        context->theme.sudoku.cell_text.invalid_builder            = pallet_5; // TODO make this striped
+        context->theme.sudoku.cell_text.invalid_solver             = pallet_error;
+        context->theme.sudoku.cell_text.invalid_marking_certain    = pallet_error;
+        context->theme.sudoku.cell_text.invalid_marking_uncertain  = pallet_error;
 
 
         {
             const Color transparent = rgba(0, 0, 0, 0);
 
             // Colors stolen from https://sudokupad.app
-            const Color cell_colors[Array_Len(context.theme.sudoku.cell_color_bitfield)] = {
+            const Color cell_colors[Array_Len(context->theme.sudoku.cell_color_bitfield)] = {
                 transparent,          // cell color 0
                 rgb(214, 214, 214),   // cell color 1
                 rgb(124, 124, 124),   // cell color 2
@@ -369,31 +427,38 @@ void init_context(void) {
                 rgb(  9,  89, 170),   // cell color t
             };
 
-            static_assert(sizeof(cell_colors) <= sizeof(context.theme.sudoku.cell_color_bitfield), "just making sure.");
-            Mem_Copy(context.theme.sudoku.cell_color_bitfield, (void*)cell_colors, sizeof(cell_colors));
+            static_assert(sizeof(cell_colors) <= sizeof(context->theme.sudoku.cell_color_bitfield), "just making sure.");
+            Mem_Copy(context->theme.sudoku.cell_color_bitfield, (void*)cell_colors, sizeof(cell_colors));
         }
 
-        context.theme.select_highlight = pallet_select;
+        context->theme.select_highlight = pallet_select;
 
-        context.theme.logger.text_color         = pallet_4;
-        context.theme.logger.error_text_color   = pallet_error;
+        context->theme.logger.text_color         = pallet_4;
+        context->theme.logger.error_text_color   = pallet_error;
 
-        context.theme.logger.box_background     = pallet_3;
-        context.theme.logger.box_frame_color    = pallet_5;
+        context->theme.logger.box_background     = pallet_3;
+        context->theme.logger.box_frame_color    = pallet_5;
     }
 
 }
 void uninit_context(void) {
-    Pool_Free_Arenas(&context.pool);
-    UnloadRenderTexture(context.debug_texture);
+    Context *context = get_context();
+
+    Pool_Free_Arenas(&context->pool);
+    UnloadRenderTexture(context->debug_texture);
+
+    // goodbye pointers.
+    Mem_Zero_Struct(&context);
 }
 
 
 Arena *Scratch_Get(void)               {
-    return Pool_Get(&context.pool);
+    Context *context = get_context();
+    return Pool_Get(&context->pool);
 }
 void   Scratch_Release(Arena *scratch) {
-    Pool_Release(&context.pool, scratch);
+    Context *context = get_context();
+    Pool_Release(&context->pool, scratch);
 }
 
 
@@ -426,6 +491,9 @@ int main(void) {
 
     init_context();
 
+    Context *context = get_context();
+
+
     // this is my own font system, the functions mimic raylibs style.
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
     // this is my own sound system, the functions *DO NOT* mimic raylibs style.
@@ -433,13 +501,13 @@ int main(void) {
 
 
     { // load the autosave.
-        const char *error = load_sudoku(autosave_path, context.sudoku);
+        const char *error = load_sudoku(autosave_path, context->sudoku);
         if (error) {
             log_error("Failed To Load Save '%s': %s", autosave_path, error);
             // TODO make a "clear grid" function.
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
+                    Place_Digit(&context->sudoku->grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
                 }
             }
         } else {
@@ -450,17 +518,19 @@ int main(void) {
 
 #define Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku) Mem_Eq(&(sudoku)->grid, &(sudoku)->undo_buffer.items[(sudoku)->undo_buffer.count-1], sizeof((sudoku)->grid))
 
-    if (context.sudoku->undo_buffer.count == 0) {
-        Array_Append(&context.sudoku->undo_buffer, context.sudoku->grid);
-        context.sudoku->redo_count = 0;
+    if (context->sudoku->undo_buffer.count == 0) {
+        Array_Append(&context->sudoku->undo_buffer, context->sudoku->grid);
+        context->sudoku->redo_count = 0;
     }
-    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku));
+    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
 
 
 
 #ifdef PLATFORM_WEB
 
     emscripten_set_main_loop(do_one_frame, 0, 1);
+    #error "do we exit now? or dose this function call kidnap the control flow?"
+    return 0;
 
 #else
 
@@ -476,7 +546,7 @@ int main(void) {
 
 
 
-    bool result = save_sudoku(autosave_path, context.sudoku);
+    bool result = save_sudoku(autosave_path, context->sudoku);
     if (!result) {
         log_error("something went wrong when saveing");
     }
@@ -493,25 +563,31 @@ int main(void) {
 
 
 
+
+
+void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height);
+
 void do_one_frame() {
-    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku));
+    Context *context = get_context();
+
+    ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
 
 
-    Arena_Clear(context.scratch);
+    Arena_Clear(context->scratch);
 
     BeginDrawing();
-    ClearBackground(context.theme.background);
+    ClearBackground(context->theme.background);
 
     {
-        s32 prev_window_width   = context.window_width;
-        s32 prev_window_height  = context.window_height;
+        s32 prev_window_width   = context->window_width;
+        s32 prev_window_height  = context->window_height;
 
-        context.window_width    = GetScreenWidth();
-        context.window_height   = GetScreenHeight();
+        context->window_width    = GetScreenWidth();
+        context->window_height   = GetScreenHeight();
 
-        if (prev_window_width != context.window_width || prev_window_height != context.window_height) {
-            UnloadRenderTexture(context.debug_texture);
-            context.debug_texture = LoadRenderTexture(context.window_width, context.window_height);
+        if (prev_window_width != context->window_width || prev_window_height != context->window_height) {
+            UnloadRenderTexture(context->debug_texture);
+            context->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
         }
     }
 
@@ -526,44 +602,96 @@ void do_one_frame() {
     //        User Input
     ////////////////////////////////
     update_input();
-    Input *input = get_input();
 
 
-    toggle_when_pressed(&context.debug_draw_smaller_cell_hitbox,    KEY_F1);
-    toggle_when_pressed(&context.debug_draw_cursor_position,        KEY_F2);
-    toggle_when_pressed(&context.debug_draw_color_points,           KEY_F3);
+    toggle_when_pressed(&context->debug_draw_smaller_cell_hitbox,    KEY_F1);
+    toggle_when_pressed(&context->debug_draw_cursor_position,        KEY_F2);
+    toggle_when_pressed(&context->debug_draw_color_points,           KEY_F3);
 
 
-    toggle_when_pressed(&context.debug_draw_fps,                    KEY_F4);
-    if (context.debug_draw_fps) DebugDraw(DrawFPS(context.window_width - 100, 10));
+    toggle_when_pressed(&context->debug_draw_fps,                    KEY_F4);
+    if (context->debug_draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
 
 
-    local_persist bool in_solve_mode = true;
+    // TODO maybe it would be better to pass this in as a argument.
+    // local_persist bool in_solve_mode = true;
     {
-        toggle_when_pressed(&in_solve_mode, KEY_B);
+        toggle_when_pressed(&context->in_solve_mode, KEY_B);
 
         const char *text;
         Color text_color;
-        if (!in_solve_mode) {
+        if (!context->in_solve_mode) {
             text       = "BUILD";
-            text_color = context.theme.sudoku.cell_text.valid_builder; // color is the same as the average text.
+            text_color = context->theme.sudoku.cell_text.valid_builder; // color is the same as the average text.
         } else {
             text       = "SOLVE";
-            text_color = context.theme.sudoku.cell_text.valid_solver;  // color is the same as the average text.
+            text_color = context->theme.sudoku.cell_text.valid_solver;  // color is the same as the average text.
         }
 
-        Vector2 text_pos = { context.window_width/2, 10 + FONT_SIZE/2 };
+        Vector2 text_pos = { context->window_width/2, 10 + FONT_SIZE/2 };
         DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
     }
+
+
+
+    Vector2 top_left_corner = {
+        (context->window_width /2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+        (context->window_height/2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+    };
+
+    handle_and_draw_sudoku(
+        context->sudoku,
+        top_left_corner.x,
+        top_left_corner.y,
+        SUDOKU_SIZE * SUDOKU_CELL_SIZE,
+        SUDOKU_SIZE * SUDOKU_CELL_SIZE
+    );
+
+
+    // draw logged messages.
+    draw_logger_frame(10, 40);
+
+    // draw the debug stuff.
+    DrawTextureRightsideUp(context->debug_texture.texture, 0, 0);
+
+    EndDrawing();
+}
+
+
+//
+// draw a sudoku into these bounds, will be clamped to square shape
+//
+// (x, y, wight, heigh) -> in pixels
+//
+void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height) {
+    Context *context = get_context();
+
+
+    Draw_Sudoku_Boundary bounds = {
+        .x = x,
+        .y = y,
+        .width  = width,
+        .height = height,
+
+        .size      = Min(width, height),
+        .cell_size = Min(width, height) / 9.0,
+    };
+
+    Input *input = get_input();
+
 
 
     ////////////////////////////////
     //        Selection
     ////////////////////////////////
+
+    // TODO put this local persist stuff into the sudoku struct.
+
     local_persist bool when_dragging_to_set_selected_to = true;
     if (!input->mouse.left.down) when_dragging_to_set_selected_to = true;
 
 
+    // TODO put in context or something.
     local_persist s8 cursor_x = SUDOKU_SIZE / 2; // should be 4 (the middle)
     local_persist s8 cursor_y = SUDOKU_SIZE / 2; // should be 4 (the middle)
     {
@@ -582,13 +710,13 @@ void do_one_frame() {
         //
         // if shift is not pressed, and the cursor couldnt move to the cell,
         // but will be able to, it dosn't move.
-        if (get_cell(context.sudoku, cursor_x, cursor_y).ui->is_selected) {
+        if (get_cell(context->sudoku, cursor_x, cursor_y).ui->is_selected) {
             cursor_x = prev_x;
             cursor_y = prev_y;
         }
 
-        if (context.debug_draw_cursor_position) {
-            Rectangle rec = get_cell_bounds(context.sudoku, cursor_x, cursor_y);
+        if (context->debug_draw_cursor_position) {
+            Rectangle rec = get_cell_bounds_with_bounds(bounds, cursor_x, cursor_y);
             DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
         }
     }
@@ -629,23 +757,22 @@ void do_one_frame() {
 
     if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
         play_sound("undo_undo");
-        if (context.sudoku->undo_buffer.count > 1) {
-            context.sudoku->undo_buffer.count   -= 1;
-            context.sudoku->redo_count          += 1;
-            context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
+        if (sudoku->undo_buffer.count > 1) {
+            sudoku->undo_buffer.count   -= 1;
+            sudoku->redo_count          += 1;
+            sudoku->grid = sudoku->undo_buffer.items[sudoku->undo_buffer.count - 1];
         }
     }
 
     // TODO cntl-x should be cut, but we dont have that yet.
     if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
         play_sound("undo_redo");
-        if (context.sudoku->redo_count > 0) {
-            context.sudoku->undo_buffer.count   += 1;
-            context.sudoku->redo_count          -= 1;
-            context.sudoku->grid = context.sudoku->undo_buffer.items[context.sudoku->undo_buffer.count - 1];
+        if (sudoku->redo_count > 0) {
+            sudoku->undo_buffer.count   += 1;
+            sudoku->redo_count          -= 1;
+            sudoku->grid = sudoku->undo_buffer.items[sudoku->undo_buffer.count - 1];
         }
     }
-
 
 
     ////////////////////////////////////////////////
@@ -656,7 +783,7 @@ void do_one_frame() {
         ////////////////////////////////////////////////
         //              Selection stuff
         ////////////////////////////////////////////////
-        Sudoku_UI_Grid previous_ui = context.sudoku->ui;
+        Sudoku_UI_Grid previous_ui = context->sudoku->ui;
 
         bool clicked_on_box = false;
         s8 click_i, click_j;
@@ -664,8 +791,8 @@ void do_one_frame() {
         // phase 1
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
-                Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
+                Sudoku_Cell cell        = get_cell(sudoku, i, j);
+                Rectangle   cell_bounds = get_cell_bounds_with_bounds(bounds, i, j);
 
 
                 // selected stuff
@@ -704,15 +831,15 @@ void do_one_frame() {
 
         // NOTE this begin/end TextureMode stuff is because if it was inside
         // this 9*9 loop, it drags the fps down to 30.
-        if (context.debug_draw_smaller_cell_hitbox) BeginTextureMode(context.debug_texture);
+        if (context->debug_draw_smaller_cell_hitbox) BeginTextureMode(context->debug_texture);
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
-                Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
+                Sudoku_Cell cell        = get_cell(sudoku, i, j);
+                Rectangle   cell_bounds = get_cell_bounds_with_bounds(bounds, i, j);
 
                 // selected stuff, mouse dragging
                 Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
-                if (context.debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
+                if (context->debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
 
                 if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
                     cell.ui->is_selected = when_dragging_to_set_selected_to;
@@ -720,7 +847,7 @@ void do_one_frame() {
                 }
             }
         }
-        if (context.debug_draw_smaller_cell_hitbox) EndTextureMode();
+        if (context->debug_draw_smaller_cell_hitbox) EndTextureMode();
 
 
 
@@ -735,14 +862,14 @@ void do_one_frame() {
                 when_dragging_to_set_selected_to = true;
 
 
-                Sudoku_Cell cell = get_cell(context.sudoku, click_i, click_j);
+                Sudoku_Cell cell = get_cell(sudoku, click_i, click_j);
 
                 if (*cell.digit != NO_DIGIT_PLACED) {
                     // select every digit that is this digit
                     s8 digit_to_select = *cell.digit;
                     for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                            Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
+                            Sudoku_Cell this_cell = get_cell(sudoku, i, j);
 
                             if (*this_cell.digit == digit_to_select)    this_cell.ui->is_selected = true;
                         }
@@ -753,7 +880,7 @@ void do_one_frame() {
                     // TODO be smarter and think about the marking and colors for this
                     for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                            Sudoku_Cell this_cell = get_cell(context.sudoku, i, j);
+                            Sudoku_Cell this_cell = get_cell(sudoku, i, j);
                             if (*this_cell.digit == NO_DIGIT_PLACED)    this_cell.ui->is_selected = true;
                         }
                     }
@@ -767,7 +894,7 @@ void do_one_frame() {
             bool selected_changed = false;
             for (u32 j = 0; j < SUDOKU_SIZE; j++) {
                 for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    bool is_selected = cell_is_selected(&context.sudoku->ui, i, j);
+                    bool is_selected = cell_is_selected(&sudoku->ui, i, j);
 
                     if (is_selected != previous_ui.grid[j][i].is_selected) {
                         selected_changed = true;
@@ -781,10 +908,10 @@ void do_one_frame() {
                 Selected_Animation new_animation = {
                     .t_animation   = 0,
                     .prev_ui_state = previous_ui,
-                    .curr_ui_state = context.sudoku->ui,
+                    .curr_ui_state = context->sudoku->ui,
                 };
 
-                Array_Append(&context.selection_animation_array, new_animation);
+                Array_Append(&sudoku->selection_animation_array, new_animation);
             }
         }
     }
@@ -797,13 +924,13 @@ void do_one_frame() {
     if (number_pressed != NO_DIGIT_PLACED) {
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                Sudoku_Cell cell = get_cell(sudoku, i, j);
                 if (!cell.ui->is_selected) continue;
 
 
                 bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
                 bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+                bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
 
                 switch (layer_to_place) {
                     case SUL_DIGIT: {
@@ -824,21 +951,21 @@ void do_one_frame() {
 
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                Sudoku_Cell cell = get_cell(sudoku, i, j);
                 if (!cell.ui->is_selected) continue;
 
 
                 bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
                 bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+                bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
 
                 switch (layer_to_place) {
                 case SUL_DIGIT: {
                     if (slot_is_modifiable) {
                         if (remove_number_this_press) {
-                            Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
+                            Place_Digit(&sudoku->grid, i, j, NO_DIGIT_PLACED);
                         } else {
-                            Place_Digit(&context.sudoku->grid, i, j, number_pressed, .in_solve_mode = in_solve_mode);
+                            Place_Digit(&sudoku->grid, i, j, number_pressed, .in_solve_mode = context->in_solve_mode);
                         }
                     }
                 } break;
@@ -873,12 +1000,12 @@ void do_one_frame() {
     if (input->keyboard.delete_pressed) {
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                Sudoku_Cell cell = get_cell(sudoku, i, j);
                 if (!cell.ui->is_selected) continue;
 
                 bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
                 bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+                bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
 
                 // TODO maybe if you have cntl press or something it dose something different?
 
@@ -892,17 +1019,17 @@ void do_one_frame() {
 
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                Sudoku_Cell cell = get_cell(sudoku, i, j);
                 if (!cell.ui->is_selected) continue;
 
                 bool has_digit = (*cell.digit != NO_DIGIT_PLACED);
                 bool has_builder_digit = has_digit && !(*cell.digit_placed_in_solve_mode);
-                bool slot_is_modifiable = (in_solve_mode && !has_builder_digit) || !in_solve_mode;
+                bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
 
                 switch (layer_to_delete) {
                 case SUL_DIGIT: {
                     if (slot_is_modifiable) {
-                        Place_Digit(&context.sudoku->grid, i, j, NO_DIGIT_PLACED);
+                        Place_Digit(&sudoku->grid, i, j, NO_DIGIT_PLACED);
                     }
                 } break;
                 case SUL_CERTAIN:   { *cell.  certain      = 0; } break;
@@ -917,9 +1044,9 @@ void do_one_frame() {
     ////////////////////////////////////////////////
     //                Undo / Redo
     ////////////////////////////////////////////////
-    if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context.sudoku)) {
-        Array_Append(&context.sudoku->undo_buffer, context.sudoku->grid);
-        context.sudoku->redo_count = 0;
+    if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku)) {
+        Array_Append(&sudoku->undo_buffer, sudoku->grid);
+        sudoku->redo_count = 0;
     }
 
 
@@ -931,18 +1058,18 @@ void do_one_frame() {
         // invalid by sudoku logic, and if they are, draw them red or something.
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                Sudoku_Cell cell = get_cell(context.sudoku, i, j);
+                Sudoku_Cell cell = get_cell(sudoku, i, j);
 
                 // these arrays hold all the invalid digits for that cell.
                 //
                 // NOTE this array only needs to be as long as the max number of digits
                 // that can be placed in a sudoku grid, however, this is C, it dose
-                // not have slices. no further explantion needed.
+                // not have slices. no further explanation needed.
                 Int_Array *invalid_digits_array = &cell.ui->invalid_digits_array;
 
                 Mem_Zero(invalid_digits_array, sizeof(*invalid_digits_array));
                 // use the scratch allocator.
-                invalid_digits_array->allocator = context.scratch;
+                invalid_digits_array->allocator = context->scratch;
 
                 { // search in the current box
                     static_assert(SUDOKU_SIZE == 9, "3 is 1/3 of SUDOKU_SIZE (witch is 9)");
@@ -955,7 +1082,7 @@ void do_one_frame() {
                             // dont check yourself.
                             if (group_index_x == i && group_index_y == j) continue;
 
-                            Sudoku_Cell other_cell = get_cell(context.sudoku, group_index_x, group_index_y);
+                            Sudoku_Cell other_cell = get_cell(sudoku, group_index_x, group_index_y);
                             // @Copypasta, but thats just C, being C
                             if (*other_cell.digit != NO_DIGIT_PLACED) {
                                 if (index_in_array(invalid_digits_array, *other_cell.digit) == -1) {
@@ -968,14 +1095,14 @@ void do_one_frame() {
                     }
                 }
 
-                // (search in the collum) && (search in the row)
+                // (search in the Column) && (search in the row)
                 //
                 // note. this double searches the things in its box.
                 // but thats ok because we de-duplicate.
                 for (u32 k = 0; k < SUDOKU_SIZE; k++) {
                     // row
                     if (k != i) {
-                        Sudoku_Cell other_cell = get_cell(context.sudoku, k, j);
+                        Sudoku_Cell other_cell = get_cell(sudoku, k, j);
                         // @Copypasta, but thats just C, being C
                         if (*other_cell.digit != NO_DIGIT_PLACED) {
                             if (index_in_array(invalid_digits_array, *other_cell.digit) == -1) {
@@ -985,9 +1112,9 @@ void do_one_frame() {
                             }
                         }
                     }
-                    // collum
+                    // column
                     if (k != j) {
-                        Sudoku_Cell other_cell = get_cell(context.sudoku, i, k);
+                        Sudoku_Cell other_cell = get_cell(sudoku, i, k);
                         // @Copypasta, but thats just C, being C
                         if (*other_cell.digit != NO_DIGIT_PLACED) {
                             if (index_in_array(invalid_digits_array, *other_cell.digit) == -1) {
@@ -1008,16 +1135,16 @@ void do_one_frame() {
     ////////////////////////////////////////////////
     for (u32 j = 0; j < SUDOKU_SIZE; j++) {
         for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-            Sudoku_Cell cell        = get_cell(context.sudoku, i, j);
-            Rectangle   cell_bounds = get_cell_bounds(context.sudoku, i, j);
+            Sudoku_Cell cell        = get_cell(sudoku, i, j);
+            Rectangle   cell_bounds = get_cell_bounds_with_bounds(bounds, i, j);
 
 
             { // draw color shading / cell background
                 Int_Array color_bits = ZEROED;
-                color_bits.allocator = context.scratch;
+                color_bits.allocator = context->scratch;
 
                 #define MAX_BITS_SET    (sizeof(*cell.color_bitfield)*8)
-                static_assert(Array_Len(context.theme.sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
+                static_assert(Array_Len(context->theme.sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
 
                 // loop over all bits, and get the index's of the colors.
                 for (u32 k = 0; k < MAX_BITS_SET; k++) {
@@ -1026,13 +1153,13 @@ void do_one_frame() {
 
 
                 // were always gonna draw the cell background, because some cell colors are transparent.
-                DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_background);
+                DrawRectangleRec(cell_bounds, context->theme.sudoku.cell_background);
 
                 if (color_bits.count == 0) {
                     // do nothing.
                 } else if (color_bits.count == 1) {
                     // a very obvious special case. only one color
-                    DrawRectangleRec(cell_bounds, context.theme.sudoku.cell_color_bitfield[color_bits.items[0]]);
+                    DrawRectangleRec(cell_bounds, context->theme.sudoku.cell_color_bitfield[color_bits.items[0]]);
                 } else {
 
                     //
@@ -1054,7 +1181,7 @@ void do_one_frame() {
                     // turning off and on again in such quick succsesstion,
                     //
                     // these gards will help, but if every cell has colors will still slow down.
-                    if (context.debug_draw_color_points) BeginTextureMode(context.debug_texture);
+                    if (context->debug_draw_color_points) BeginTextureMode(context->debug_texture);
                     for (u32 point_index = 0; point_index < points_count; point_index++) {
                         f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
                         f32 percent = (f32)point_index / (f32)points_count;
@@ -1066,12 +1193,12 @@ void do_one_frame() {
                         points[point_index].x = sinf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
                         points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
 
-                        if (context.debug_draw_color_points) {
-                            Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                        if (context->debug_draw_color_points) {
+                            Color color = context->theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
                             DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
                         }
                     }
-                    if (context.debug_draw_color_points) EndTextureMode();
+                    if (context->debug_draw_color_points) EndTextureMode();
 
 
                     Vector2 middle = {SUDOKU_CELL_SIZE/2, SUDOKU_CELL_SIZE/2};
@@ -1118,7 +1245,7 @@ void do_one_frame() {
                         ASSERT(seen_start && seen_end);
                         ASSERT(fan_points_count <= 5);
 
-                        Color color = context.theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                        Color color = context->theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
                         for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
                             fan_points[fan_index].x += cell_bounds.x;
                             fan_points[fan_index].y += cell_bounds.y;
@@ -1133,7 +1260,7 @@ void do_one_frame() {
 
             { // draw cell surrounding frame
                 Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
-                DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, context.theme.sudoku.cell_lines);
+                DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, context->theme.sudoku.cell_lines);
             }
 
 
@@ -1156,19 +1283,19 @@ void do_one_frame() {
                 Color text_color;
                 if        (!is_an_invalid_digit && !placed_in_solve_mode) {
                     // normal builder digit
-                    text_color = context.theme.sudoku.cell_text.  valid_builder;
+                    text_color = context->theme.sudoku.cell_text.  valid_builder;
 
                 } else if (!is_an_invalid_digit &&  placed_in_solve_mode) {
                     // normal solver digit
-                    text_color = context.theme.sudoku.cell_text.  valid_solver;
+                    text_color = context->theme.sudoku.cell_text.  valid_solver;
 
                 } else if ( is_an_invalid_digit && !placed_in_solve_mode) {
                     // invalid builder digit
-                    text_color = context.theme.sudoku.cell_text.invalid_builder;
+                    text_color = context->theme.sudoku.cell_text.invalid_builder;
 
                 } else if ( is_an_invalid_digit &&  placed_in_solve_mode) {
                     // invalid solver digit
-                    text_color = context.theme.sudoku.cell_text.invalid_solver;
+                    text_color = context->theme.sudoku.cell_text.invalid_solver;
 
                 } else {
                     UNREACHABLE();
@@ -1178,8 +1305,8 @@ void do_one_frame() {
                 DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
             } else {
                 // draw uncertain and certain digits
-                Int_Array uncertain_numbers = { .allocator = context.scratch };
-                Int_Array certain_numbers   = { .allocator = context.scratch };
+                Int_Array uncertain_numbers = { .allocator = context->scratch };
+                Int_Array certain_numbers   = { .allocator = context->scratch };
 
                 for (u8 k = 0; k <= 9; k++) {
                     if (*cell.uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
@@ -1196,9 +1323,9 @@ void do_one_frame() {
                         const char *text = TextFormat("%d", uncertain_numbers.items[k]);
                         Color text_color;
                         if (index_in_array(invalid_digits_array, uncertain_numbers.items[k]) == -1) {
-                            text_color = context.theme.sudoku.cell_text.  valid_marking_uncerten;
+                            text_color = context->theme.sudoku.cell_text.  valid_marking_uncertain;
                         } else {
-                            text_color = context.theme.sudoku.cell_text.invalid_marking_uncerten;
+                            text_color = context->theme.sudoku.cell_text.invalid_marking_uncertain;
                         }
 
                         Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
@@ -1241,15 +1368,15 @@ void do_one_frame() {
 
                         Color text_color;
                         if (index_in_array(invalid_digits_array, n) == -1) {
-                            text_color = context.theme.sudoku.cell_text.  valid_marking_certen;
+                            text_color = context->theme.sudoku.cell_text.  valid_marking_certain;
                         } else {
-                            text_color = context.theme.sudoku.cell_text.invalid_marking_certen;
+                            text_color = context->theme.sudoku.cell_text.invalid_marking_certain;
                         }
 
                         DrawTextCodepoint(font_and_size.font, c, char_pos, font_and_size.size, text_color);
 
 
-                        // find the corrospoding glyph for this char.
+                        // find the corresponding glyph for this char.
                         GlyphInfo *g = get_glyph_info_for_char(font_and_size.font, c);
                         ASSERT(g != NULL);
 
@@ -1284,41 +1411,38 @@ void do_one_frame() {
         if (debug_slow_down_animation) animation_speed = 0.1;
 
 
+        // square macro is helpful, but it shouldn't be here, maybe up top?
         #define Square(x) ((x)*(x))
 
-        // speed up the animation the more elements tere, are. to try and catch up
-        animation_speed *= Square(context.selection_animation_array.count);
+        // speed up the animation the more elements there are.
+        // to try and catch back up.
+        animation_speed *= Square(sudoku->selection_animation_array.count);
         f64 dt = input->time.dt * animation_speed;
 
-        while (context.selection_animation_array.count > 0) {
-            Selected_Animation *animation = &context.selection_animation_array.items[0];
+        while (sudoku->selection_animation_array.count > 0) {
+            Selected_Animation *animation = &sudoku->selection_animation_array.items[0];
             animation->t_animation += dt;
 
             if (animation->t_animation >= 1) {
                 dt = animation->t_animation - 1;
-                Array_Remove(&context.selection_animation_array, 0, 1);
+                Array_Remove(&sudoku->selection_animation_array, 0, 1);
             } else {
                 break;
             }
         }
 
 
-        Selected_Animation *animation = NULL;
-        if (context.selection_animation_array.count > 0) {
-            animation = &context.selection_animation_array.items[0];
-        }
-
-        draw_sudoku_selection(context.sudoku, animation);
+        draw_sudoku_selection(sudoku, bounds);
     }
 
 
 
     {
-        // Lines that seperate the Boxes
+        // Lines that separate the Boxes
         for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
-                Rectangle ul_box = get_cell_bounds(context.sudoku, i*3,     j*3    );
-                Rectangle dr_box = get_cell_bounds(context.sudoku, i*3 + 2, j*3 + 2);
+                Rectangle ul_box = get_cell_bounds_with_bounds(bounds, i*3,     j*3    );
+                Rectangle dr_box = get_cell_bounds_with_bounds(bounds, i*3 + 2, j*3 + 2);
 
                 Rectangle region_box = {
                     ul_box.x,
@@ -1330,14 +1454,14 @@ void do_one_frame() {
                 DrawRectangleFrameRec(
                     GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2),
                     SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                    context.theme.sudoku.box_lines
+                    context->theme.sudoku.box_lines
                 );
             }
         }
 
         { // this outer box hits 1 extra pixel.
-            Rectangle ul_box = get_cell_bounds(context.sudoku, 0, 0);
-            Rectangle dr_box = get_cell_bounds(context.sudoku, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
+            Rectangle ul_box = get_cell_bounds_with_bounds(bounds, 0, 0);
+            Rectangle dr_box = get_cell_bounds_with_bounds(bounds, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
 
             Rectangle region_box = {
                 ul_box.x,
@@ -1349,22 +1473,11 @@ void do_one_frame() {
             DrawRectangleFrameRec(
                 GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS),
                 SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                context.theme.sudoku.box_lines
+                context->theme.sudoku.box_lines
             );
         }
     }
-
-
-
-    // draw logged messages.
-    draw_logger_frame(10, 40);
-
-    // draw the debug stuff.
-    DrawTextureRightsideUp(context.debug_texture.texture, 0, 0);
-
-    EndDrawing();
 }
-
 
 
 
@@ -1379,8 +1492,6 @@ void do_one_frame() {
 #define BESTED_IMPLEMENTATION
 #include "Bested.h"
 
-
-
 #define SUDOKU_IMPLEMENTATION
 #include "sudoku_grid.h"
 
@@ -1390,11 +1501,13 @@ void do_one_frame() {
 #define INPUT_IMPLEMENTATION
 #include "input.h"
 
-
 #define LOGGING_IMPLEMENTATION
 #include "logging.h"
 
-
 #define SUDOKU_DRAW_SELECTION_IMPLEMENTATION
 #include "sudoku_draw_selection.h"
+
+#define SUDOKU_SOLVER_IMPLEMENTATION
+#include "sudoku_solver/sudoku_solver.h"
+
 

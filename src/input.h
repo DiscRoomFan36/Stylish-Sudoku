@@ -62,8 +62,10 @@ internal inline Input *get_input(void);
 
 
 
+// Do we need this function now that get_context() is a thing?
 Input *get_input(void) {
-    return &context.input;
+    Context *context = get_context();
+    return &context->input;
 }
 
 
