@@ -1,9 +1,6 @@
 
-// make this bigger, we want harder sudoku's,
-// and we dont really care how long this runs.
-//
-// this should be run once, then the output is used for tests for a long time.
-#define GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING 512
+#include <time.h>
+
 
 #define SUDOKU_SOLVER_IMPLEMENTATION
 #include "./sudoku_solver.h"
@@ -43,7 +40,31 @@ internal void print_duration(u64 time_start, u64 time_end) {
 
 
 
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
+
+internal bool file_exists(const char *filepath) {
+    struct stat stat_buf;
+    if (stat(filepath, &stat_buf) < 0) {
+        if (errno == ENOENT) return false;
+        assert(false && "could not check if file exists.");
+    }
+    return true;
+}
+
+internal void mkdir_if_not_exists(const char *dirpath) {
+    if (file_exists(dirpath)) return;
+
+    if (mkdir(dirpath, 0755) < 0) {
+        perror("could not make directory");
+        exit(1);
+    }
+}
+
+
 int main(void) {
+    srand(time(NULL));
 
     typedef struct {
         _Array_Header_;
@@ -52,7 +73,7 @@ int main(void) {
 
     Sudoku_Digit_Grid_Array sudoku_array = ZEROED;
 
-    #define TOTAL_LOOPS 1000
+    #define TOTAL_LOOPS 10000
 
     {
         printf("Generating %d sudoku's!\n", TOTAL_LOOPS);
@@ -67,9 +88,9 @@ int main(void) {
 
             // we want to make difficult sudoku's, to stress the solver.
             //
-            // most of the time, the grid will not reach 20 digits,
-            // and we ba around 23-25
-            Sudoku_Digit_Grid grid = Generate_Random_Sudoku(20);
+            // most of the time, the grid will not reach 17 digits,
+            // and will be around 20-25
+            Sudoku_Digit_Grid grid = Generate_Random_Sudoku(17);
             Array_Append(&sudoku_array, grid);
         }
         print_running(TOTAL_LOOPS, TOTAL_LOOPS); printf("\n");
@@ -80,7 +101,25 @@ int main(void) {
 
     String_Builder sb = ZEROED;
     {
-        const char *save_file_path = "./build/random_sudoku_strings.txt";
+
+        #define SAVE_FOLDER "./build/randomly_generated_sudoku/"
+
+        // the exe is probably in this file
+        assert(file_exists("./build/"));
+        mkdir_if_not_exists(SAVE_FOLDER);
+
+        char filename_str_buf[FILENAME_MAX] = ZEROED;
+        {
+            time_t date_time_now = time(NULL);
+            // date time deconstructed
+            struct tm dtd = *localtime(&date_time_now);
+            // .rgstf -> Randomly Generated Sudoku Text File
+            snprintf(filename_str_buf, sizeof(filename_str_buf), SAVE_FOLDER "%04d_%02d_%02d_%02d_%02d_%02d.rgstf", dtd.tm_year + 1900, dtd.tm_mon + 1, dtd.tm_mday, dtd.tm_hour, dtd.tm_min, dtd.tm_sec);
+        }
+
+        const char *save_file_path = filename_str_buf;
+
+
         printf("Saving to file %s\n", save_file_path);
         u64 time_start = nanoseconds_since_unspecified_epoch();
 

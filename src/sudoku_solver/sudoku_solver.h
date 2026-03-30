@@ -86,15 +86,6 @@ Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku);
 //
 Sudoku_Digit_Grid Generate_Random_Sudoku(u32 num_digits_in_puzzle);
 
-//
-// how many times the sudoku will retry to bring the number of digits in the puzzle down.
-//
-// this number is per layer, so if it takes 31 tries to bring the number from 20 -> 19,
-// it will try at most 32 time to go from 19 -> 18.
-//
-#ifndef GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING
-    #define GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING 256
-#endif // GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING
 
 
 #endif // SUDOKU_SOLVER_H
@@ -425,6 +416,13 @@ internal u32 count_trailing_zeros(u32 x) {
 }
 
 
+// inclusive.
+internal size_t random_number_in_range(size_t low, size_t high) {
+    // Source - https://stackoverflow.com/a/18386648
+    // Posted by Victor, modified by community. See post 'Timeline' for change history
+    // Retrieved 2026-03-30, License - CC BY-SA 4.0
+    return low + rand() / (RAND_MAX / (high - low + 1) + 1);
+}
 
 typedef struct {
     // contains the digits 1 -> 9 in a random order
@@ -434,14 +432,15 @@ typedef struct {
 internal Digit_Permutation random_digit_permutation(void) {
     Digit_Permutation result = ZEROED;
     static_assert(NUM_DIGITS == 9, "this would do bad things to memory");
-    for (size_t digit = 1; digit <= 9; digit++) {
-        result.permutation[digit-1] = digit;
+    for (size_t i = 0; i < Array_Len(result.permutation); i++) {
+        size_t digit = i+1;
+        assert(Is_Between(digit, 0, 9));
+        result.permutation[i] = digit;
     }
 
     // Fisher-Yates shuffle
-    for (size_t i = Array_Len(result.permutation); i > 0; i--) {
-        size_t random_number = rand();
-        size_t other_index = random_number % i;
+    for (size_t i = Array_Len(result.permutation)-1; i > 0; i--) {
+        size_t other_index = random_number_in_range(0, i);
 
         u8 tmp                          = result.permutation[i];
         result.permutation[i]           = result.permutation[other_index];
@@ -926,31 +925,38 @@ Sudoku_Digit_Grid Generate_Random_Sudoku(u32 num_digits_in_puzzle) {
     u32 digits_currently_in_puzzle = NUM_DIGITS*NUM_DIGITS;
     while (digits_currently_in_puzzle > num_digits_in_puzzle) {
         bool removed_a_digit = false;
-        for (size_t i = 0; i < GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING; i++) {
 
-            Vec2i pos = {0, 0};
-            for (size_t j = 0; j < 256; j++) {
-                pos = (Vec2i){ rand() % NUM_DIGITS, rand() % NUM_DIGITS };
-                if (resulting_grid.digits[pos.y][pos.x] != 0) break;
+        // generate 2 permutations, should be fine to only
+        // generate 1 x positions, should be random enough.
+        Digit_Permutation pos_x = random_digit_permutation();
+        Digit_Permutation pos_y = random_digit_permutation();
+
+        for (size_t j = 0; j < Array_Len(pos_y.permutation); j++) {
+            s32 y = pos_y.permutation[j] - 1;
+            // assert(y != 0);
+            assert(Is_Between(y, 0, NUM_DIGITS-1));
+            for (size_t i = 0; i < Array_Len(pos_x.permutation); i++) {
+                s32 x = pos_x.permutation[i] - 1;
+
+                if (resulting_grid.digits[y][x] == 0) continue;
+
+                u8 digit = resulting_grid.digits[y][x];
+                // remove digit
+                resulting_grid.digits[y][x] = 0;
+                Input_Sudoku_Puzzle input = { .grid = resulting_grid };
+
+                Sudoku_Solver_Result solver_result = Solve_Sudoku(input);
+
+                // we removed another digit!
+                if (solver_result.sudoku_is_possible) {
+                    removed_a_digit = true;
+                    break;
+                }
+
+                // retry
+                resulting_grid.digits[y][x] = digit;
             }
-            // we didn't hit anything. seriously?
-            if (resulting_grid.digits[pos.y][pos.x] == 0) continue;
-
-            u8 digit = resulting_grid.digits[pos.y][pos.x];
-            // remove digit
-            resulting_grid.digits[pos.y][pos.x] = 0;
-            Input_Sudoku_Puzzle input = { .grid = resulting_grid };
-
-            Sudoku_Solver_Result solver_result = Solve_Sudoku(input);
-
-            // we removed another digit!
-            if (solver_result.sudoku_is_possible) {
-                removed_a_digit = true;
-                break;
-            }
-
-            // retry
-            resulting_grid.digits[pos.y][pos.x] = digit;
+            if (removed_a_digit) break;
         }
 
         // we couldn't find a digit to remove.
