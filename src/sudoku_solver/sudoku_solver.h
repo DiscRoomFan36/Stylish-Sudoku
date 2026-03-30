@@ -88,11 +88,13 @@ Sudoku_Digit_Grid Generate_Random_Sudoku(u32 num_digits_in_puzzle);
 
 //
 // how many times the sudoku will retry to bring the number of digits in the puzzle down.
-// 
+//
 // this number is per layer, so if it takes 31 tries to bring the number from 20 -> 19,
 // it will try at most 32 time to go from 19 -> 18.
 //
-#define GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING 256
+#ifndef GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING
+    #define GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING 256
+#endif // GENERATE_RANDOM_SUDOKU_NUM_RETRIES_BEFORE_QUITTING
 
 
 #endif // SUDOKU_SOLVER_H
@@ -290,9 +292,10 @@ internal Vec2i cell_to_xy(Sudoku_Solver_Struct *solver, Cell *cell) {
     return result;
 }
 
-internal size_t xy_to_index(s32 x, s32 y) {
-    return y*NUM_DIGITS + x;
-}
+// // is this even useful?
+// size_t xy_to_index(s32 x, s32 y) {
+//     return y*NUM_DIGITS + x;
+// }
 
 internal size_t xy_to_box_index(s32 x, s32 y) {
     return y/3*3 + x/3;
