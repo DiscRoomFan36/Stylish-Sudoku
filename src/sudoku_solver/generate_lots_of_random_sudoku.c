@@ -6,21 +6,94 @@
 #include "./sudoku_solver.h"
 
 
-
 // this is a pretty cool function. i should put it into Bested.h
-internal void print_running(size_t i, size_t total) {
+internal void print_running(const char *leading_text, u64 current, u64 total) {
     bool do_the_print = false;
 
-    if (i ==     0) do_the_print = true;
-    if (i == total) do_the_print = true;
+    // if at the start, or the end, do the print.
+    if (current ==     0)   do_the_print = true;
+    if (current == total)   do_the_print = true;
 
-    size_t prev_percent = ((i-1) * 100) / total;
-    size_t curr_percent = ( i    * 100) / total;
-    if (prev_percent != curr_percent) do_the_print = true;
+    // if we advanced a percent, do the print.
+    u64 prev_percent = ((current-1) * 100) / total;
+    u64 curr_percent = ( current    * 100) / total;
+    if (prev_percent != curr_percent)   do_the_print = true;
+
+    // if some time has passed, and we are further than some percent, do the print.
+    local_persist u64 last_time_printed   = 0;
+    local_persist u64 last_number_printed = 0;
+    {
+        // in %, so 50% == 0.5
+        #define ONCE_EVERY_X_PERCENT            0.01
+        #define INVERSE_ONCE_EVERY_X_PERCENT    ((u64)(100 / ONCE_EVERY_X_PERCENT))
+
+        //
+        // this check is so the nanoseconds_since_unspecified_epoch()
+        // function gets called less often.
+        //
+        // if for instance, we were iterating 100000000 times,
+        // i dont want to call the nanoseconds_since_unspecified_epoch()
+        // function that many times.
+        //
+        u64 prev_greater_percent = (last_number_printed * INVERSE_ONCE_EVERY_X_PERCENT) / total;
+        u64 curr_greater_percent = (            current * INVERSE_ONCE_EVERY_X_PERCENT) / total;
+        if (prev_greater_percent != curr_greater_percent) {
+            // this function should take about 30ns max...
+            // makes this print_running() function a bit worse to call in a super hot loop.
+            u64 now = nanoseconds_since_unspecified_epoch();
+
+            #define MAX_PRINTS_PER_SECOND        10
+            if (now - last_time_printed >= (NANOSECONDS_PER_SECOND / MAX_PRINTS_PER_SECOND))   do_the_print = true;
+        }
+    }
+
 
     if (do_the_print) {
-        printf("\rRunning: %6zu / %zu, %3zu%%", i, total, curr_percent);
+        // use this to add some ending padding to match starting padding.
+        int num_leading_spaces = 0;
+        {
+            String s = S(leading_text);
+            while (String_Starts_With(s, S(" "))) {
+                num_leading_spaces += 1;
+                String_Advance(&s, 1);
+            }
+        }
+
+        int number_width = 0;
+        { // int log 10
+            u64 x = total;
+            while (x > 0) { number_width += 1; x /= 10; }
+        }
+
+        // [leading_statement] [    i] / [total], [ xx]% [maybe_trailing_spaces]
+        String to_print = temp_String_sprintf(
+            "%s %*zu / %*zu, %3zu%%%*.s",
+            leading_text,
+            number_width, current,
+            number_width, total,
+            curr_percent,
+            num_leading_spaces, "" // trailing spaces
+        );
+
+        // black letters on a white background.
+        #define ESC_BLACK_N_WHITE   "\x1b[30;47m"
+        #define ESC_RESET           "\x1b[0m"
+
+        assert(Is_Between(curr_percent, 0, 100)); // dont overrun the buffer
+        int how_far_along = (to_print.length * curr_percent) / 100;
+
+        // this is also printing a progress bar, thats why this statement is weird
+        printf(
+            "\r" ESC_BLACK_N_WHITE "%.*s" ESC_RESET "%.*s",
+            how_far_along,                          to_print.data,
+            (int)(to_print.length - how_far_along), to_print.data + how_far_along
+        );
+
         fflush(stdout);
+
+        // call this now, so we get a longer max period between printf() calls.
+        last_time_printed   = nanoseconds_since_unspecified_epoch();
+        last_number_printed = current;
     }
 }
 
@@ -84,7 +157,7 @@ int main(void) {
 
         // TODO this is slow, maybe multithreading?
         for (size_t i = 0; i < TOTAL_LOOPS; i++) {
-            print_running(i, TOTAL_LOOPS);
+            print_running("    Generating:", i, TOTAL_LOOPS);
 
             // we want to make difficult sudoku's, to stress the solver.
             //
@@ -93,7 +166,7 @@ int main(void) {
             Sudoku_Digit_Grid grid = Generate_Random_Sudoku(17);
             Array_Append(&sudoku_array, grid);
         }
-        print_running(TOTAL_LOOPS, TOTAL_LOOPS); printf("\n");
+        print_running("    Generating:", TOTAL_LOOPS, TOTAL_LOOPS); printf("\n");
 
         u64 time_end = nanoseconds_since_unspecified_epoch();
         print_duration(time_start, time_end); printf("\n");
@@ -124,7 +197,7 @@ int main(void) {
         u64 time_start = nanoseconds_since_unspecified_epoch();
 
         for (u64 k = 0; k < sudoku_array.count; k++) {
-            print_running(k, sudoku_array.count);
+            print_running("    Formatting:", k, sudoku_array.count);
 
             Sudoku_Digit_Grid grid = sudoku_array.items[k];
 
@@ -141,7 +214,7 @@ int main(void) {
 
             String_Builder_printf(&sb, "\n");
         }
-        print_running(sudoku_array.count, sudoku_array.count); printf("\n");
+        print_running("    Formatting:", sudoku_array.count, sudoku_array.count); printf("\n");
 
         String big_sudoku_string = String_Builder_To_String(&sb);
 
