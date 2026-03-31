@@ -137,6 +137,8 @@ typedef struct {
 
 
 
+// TODO put into sudoku file.
+
 #define SELECT_LINE_THICKNESS               (SUDOKU_CELL_SIZE / 12)
 
 
@@ -482,8 +484,6 @@ int main(void) {
         }
     }
 
-
-#define Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku) Mem_Eq(&(sudoku)->grid, &(sudoku)->undo_buffer.items[(sudoku)->undo_buffer.count-1], sizeof((sudoku)->grid))
 
     if (context->sudoku->undo_buffer.count == 0) {
         Array_Append(&context->sudoku->undo_buffer, context->sudoku->grid);
