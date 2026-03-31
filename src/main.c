@@ -78,7 +78,7 @@ typedef struct {
 ////////////////////////////////////////////////////////////////////////////////
 
 
-// sqaure for now, change when adding a control pannel.
+// square for now, change when adding a control panel.
 #define INITAL_WINDOW_WIDTH         (9*80)
 #define INITAL_WINDOW_HEIGHT        (9*80)
 
@@ -101,7 +101,7 @@ static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_
 typedef struct {
     Color background;
 
-    // things relating to the sudoku. withc is most things.
+    // things relating to the sudoku. witch is most things.
     struct {
         Color cell_background;
         Color cell_lines;
@@ -242,7 +242,7 @@ internal Context *get_context(void) { return &__context_base; }
 //
 // 'Scratch_Get()' implies that you will eventually call 'Scratch_Release()'
 //
-// 'Pool_Get(&context->pool)' says that you indend to hold this Arena for the entire program.
+// 'Pool_Get(&context->pool)' says that you intended to hold this Arena for the entire program.
 //
 internal Arena *Scratch_Get(void);
 internal void   Scratch_Release(Arena *scratch);
@@ -461,9 +461,9 @@ int main(void) {
     Context *context = get_context();
 
 
-    // this is my own font system, the functions mimic raylibs style.
+    // this is my own font system, the functions mimic raylib's style.
     InitDynamicFonts("./assets/font/iosevka-light.ttf");
-    // this is my own sound system, the functions *DO NOT* mimic raylibs style.
+    // this is my own sound system, the functions *DO NOT* mimic raylib's style.
     init_sounds();
 
 
@@ -478,7 +478,7 @@ int main(void) {
                 }
             }
         } else {
-            log("Succsessfully loaded save file '%s'", autosave_path);
+            log("Successfully loaded save file '%s'", autosave_path);
         }
     }
 

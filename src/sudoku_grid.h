@@ -199,9 +199,9 @@ internal void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s3
 //                          Save / Load Sudoku
 ///////////////////////////////////////////////////////////////////////////
 
-// returns NULL on succsess, otherwise returns an error string.
+// returns NULL on success, otherwise returns an error string.
 internal const char *load_sudoku(const char *filename, Sudoku *result);
-// returns wheather or not the file was saved succsessfully.
+// returns whether or not the file was saved successfully.
 internal bool save_sudoku(const char *filename, Sudoku *to_save);
 
 
@@ -412,8 +412,8 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
         // cursor cannot go back over a selected cell.
         //
-        // if shift is not pressed, and the cursor couldnt move to the cell,
-        // but will be able to, it dosn't move.
+        // if shift is not pressed, and the cursor couldn't move to the cell,
+        // but will be able to, it doesn't move.
         if (get_cell(context->sudoku, cursor_x, cursor_y).ui->is_selected) {
             cursor_x = prev_x;
             cursor_y = prev_y;
@@ -427,7 +427,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
 
     ////////////////////////////////
-    //       placeing digits
+    //       placing digits
     ////////////////////////////////
     Sudoku_UI_Layer layer_to_place;
     if      (input->keyboard.shift_down && input->keyboard.control_down) layer_to_place = SUL_COLOR;
@@ -435,7 +435,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     else if (input->keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
     else                                                                 layer_to_place = SUL_DIGIT;
 
-    // determines wheather a number was pressed to put it into the grid.
+    // determines whether a number was pressed to put it into the grid.
     s8 number_pressed = NO_DIGIT_PLACED;
     {
         u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
@@ -562,7 +562,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                 // @Hack, this variable will make the cell de-select right away,
                 // fix it here.
                 //
-                // this code is becomeing dangerous.
+                // this code is becoming dangerous.
                 when_dragging_to_set_selected_to = true;
 
 
@@ -623,7 +623,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
 
     ////////////////////////////////////////////////
-    //              Placeing Digits
+    //              Placing Digits
     ////////////////////////////////////////////////
     if (number_pressed != NO_DIGIT_PLACED) {
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
@@ -870,7 +870,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                     // We're going to split the cell into sections, and paint them with
                     // the colors the user selected in the bit mask,
                     //
-                    // first generate points arond a circle, place them in the middle of the cell,
+                    // first generate points around a circle, place them in the middle of the cell,
                     // then extend them until there past the edge of the rectangle,
                     // create a line between the middle and that point,
                     //
@@ -882,9 +882,9 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                     u32 points_count = color_bits.count;
 
                     // NOTE this option will always case lag, because its
-                    // turning off and on again in such quick succsesstion,
+                    // turning off and on again in such quick succession,
                     //
-                    // these gards will help, but if every cell has colors will still slow down.
+                    // these guards will help, but if every cell has colors will still slow down.
                     if (context->debug_draw_color_points) BeginTextureMode(context->debug_texture);
                     for (u32 point_index = 0; point_index < points_count; point_index++) {
                         f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
@@ -892,8 +892,8 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
                         // -percent makes the points be done in clockwise order.
                         //
-                        // * SUDOKU_CELL_SIZE means that the points are garenteed to be outside the cell.
-                        // (but thay could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
+                        // * SUDOKU_CELL_SIZE means that the points are guaranteed to be outside the cell.
+                        // (but they could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
                         points[point_index].x = sinf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
                         points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
 
@@ -920,8 +920,8 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                         bool seen_end   = false;
 
 
-                        // 4 + 1 means we have to check the top edge of the rec again, could probablty
-                        // restructure this loop so we dont have to check everty edge every time but what ever.
+                        // 4 + 1 means we have to check the top edge of the rec again, could probably
+                        // restructure this loop so we dont have to check every edge every time but what ever.
                         while (rectangle_line_index < 4 + 1) {
                             Line rec_line = rectangle_lines[rectangle_line_index % 4];
 
@@ -1273,7 +1273,7 @@ internal Rectangle Rectangle_Shrink_Both_Sides(Rectangle rec, Direction dir, f32
 //        Surrounding Helpers
 //////////////////////////////////////////
 
-// this struct is 8 bytes, probably dosnt matter for my perposes to pack these.
+// this struct is 8 bytes, probably doesn't matter for my purposes to pack these.
 //
 // starts at up and moves clockwise.
 typedef union {
@@ -1403,7 +1403,7 @@ internal s32 get_corner_between_index(Direction dir_1, Direction dir_2) {
 
 
 internal void draw_selected_lines(Rectangle bounds, f32 thickness, Surrounding_Bools draw_lines, Color color) {
-    // orthoganal
+    // orthogonal
     Rectangle line_up           = { bounds.x + thickness,                   bounds.y,                               bounds.width - thickness*2, thickness,                   };
     Rectangle line_down         = { bounds.x + thickness,                   bounds.y + bounds.height - thickness,   bounds.width - thickness*2, thickness,                   };
     Rectangle line_left         = { bounds.x,                               bounds.y + thickness,                   thickness,                  bounds.height - thickness*2, };
@@ -1680,11 +1680,11 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                 case UP   | LEFT:    //  9
                 case DOWN | LEFT:  { // 12
 
-                    // draw two sides comming together
+                    // draw two sides coming together
 
                     // NOTE
                     //
-                    // this funtion assumes that (for the up right case)
+                    // this function assumes that (for the up right case)
                     // the up and right edges of the box are not drawn.
                     //
                     // but if you just click, (without shift), those lines will be there,
@@ -1846,7 +1846,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
 
                 case UP | DOWN | RIGHT | LEFT: { // 15
-                    // draw a shinking Rect that makes it look like the outside is sinking in.
+                    // draw a shrinking Rect that makes it look like the outside is sinking in.
                     Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
                     Rectangle shrinking_rectangle = ShrinkRectanglePercent(select_bounds, 1-factor);
                     draw_selected_lines(shrinking_rectangle, SELECT_LINE_THICKNESS, draw_lines, color);
@@ -1897,7 +1897,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
 
 #define MAX_TEMP_FILE_SIZE      (1 * MEGABYTE)
-// overwrites temeratry buffer every call.
+// overwrites temporary buffer every call.
 internal String temp_Read_Entire_File(const char *filename) {
     local_persist u8 temp_file_storeage[MAX_TEMP_FILE_SIZE];
 
@@ -1970,7 +1970,7 @@ typedef struct {
 
 
 
-// returns NULL on succsess, else returns error message
+// returns NULL on success, else returns error message
 internal const char *load_sudoku_version_1(String file, Sudoku *result) {
     // String file = temp_Read_Entire_File(filename);
 
@@ -1985,7 +1985,7 @@ internal const char *load_sudoku_version_1(String file, Sudoku *result) {
     for (u8 j = 0; j < Array_Len(save_struct->digits_on_the_grid); j++) {
         for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
             s8 digit = save_struct->digits_on_the_grid[j][i];
-            if (!Is_Between(digit, -1, 9)) return temp_sprintf("(%d, %d) was outside the acceptible range [-1, 9], was, %d", i, j, digit);
+            if (!Is_Between(digit, -1, 9)) return temp_sprintf("(%d, %d) was outside the acceptable range [-1, 9], was, %d", i, j, digit);
 
             struct Markings_V1 markings = save_struct->digit_markings_on_the_grid[j][i];
             (void) markings; // TODO validate this.
@@ -2007,7 +2007,7 @@ internal const char *load_sudoku_version_1(String file, Sudoku *result) {
             for (u8 i = 0; i < Array_Len(save_struct->digits_on_the_grid[j]); i++) {
                 Sudoku_Cell cell = get_cell(result, i, j);
 
-                // need to think about appropreate times to use this function, aka will this function have more side effects?
+                // need to think about appropriate times to use this function, aka will this function have more side effects?
                 // Place_Digit(&result->grid, i, j, save_struct->digits_on_the_grid[j][i], .dont_play_sound = true);
                 *cell.digit = save_struct->digits_on_the_grid[j][i];
 
@@ -2072,15 +2072,15 @@ typedef struct __attribute__((packed)) {
 
     u32 reserved_for_color; // may want a background color;
 
-    u32 reserved_for_array_1; // resurved for use as pointers to extra rules
-    u32 reserved_for_array_2; // resurved for use as pointers to extra rules
+    u32 reserved_for_array_1; // reserved for use as pointers to extra rules
+    u32 reserved_for_array_2; // reserved for use as pointers to extra rules
 
 
     u32 name_offset_in_file;
     u32 name_length;
 
-    u32 reserved_for_discription_1;
-    u32 reserved_for_discription_2;
+    u32 reserved_for_description_1;
+    u32 reserved_for_description_2;
 
 
     u32 undo_buffer_offset_in_file;
@@ -2235,8 +2235,8 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
     save_struct.reserved_for_color         = 0;
     save_struct.reserved_for_array_1       = 0;
     save_struct.reserved_for_array_2       = 0;
-    save_struct.reserved_for_discription_1 = 0;
-    save_struct.reserved_for_discription_2 = 0;
+    save_struct.reserved_for_description_1 = 0;
+    save_struct.reserved_for_description_2 = 0;
 
 
     String_Builder sb = ZEROED;
@@ -2269,7 +2269,7 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
     // Would be kinda awkward, we cant load this...
     u64 size_of_file = String_Builder_Count(&sb);
     if (size_of_file > MAX_TEMP_FILE_SIZE) {
-        log_error("file is to big to fit into temperary buffer, is %.2fMB (%lu)", (f64)size_of_file / (f64)MEGABYTE, size_of_file);
+        log_error("file is to big to fit into temporary buffer, is %.2fMB (%lu)", (f64)size_of_file / (f64)MEGABYTE, size_of_file);
     }
 
 
