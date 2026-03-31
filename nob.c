@@ -11,12 +11,13 @@
 
 
 
-static bool build_debug(void);
-static bool build_release(void);
-static bool build_wasm(void);
-static bool build_sudoku_solver_tests(void);
+static bool do_build_debug(void);
+static bool do_build_release(void);
+static bool do_build_wasm(void);
 
-static bool build_generate_lots_of_random_sudoku(void);
+static bool do_build_sudoku_solver_tests(void);
+static bool do_build_generate_lots_of_random_sudoku(void);
+static bool do_build_bench_test_sudoku_solver(void);
 
 
 static Cmd cmd = {0};
@@ -25,15 +26,19 @@ static Cmd cmd = {0};
 
 #define ARGUMENTS                                               \
     X(help,         "prints this help message and quits")       \
-    X(all,          "build all targets. [debug, release, wasm]")        \
+    X(all,          "build all targets. [debug, release, wasm, generate_lots_of_random_sudoku, sudoku_solver_tests, bench_test_sudoku_solver]")        \
     X(clean,        "clean up all build artifacts, (including autosaves), happens before all other commands, so 'all clean' will clean everything, then build everything.")        \
-    X(run_tests,    "build and run the tests")                  \
+                                                                \
     X(debug,        "build   debug native version")             \
     X(release,      "build release native version")             \
+                                                                \
     X(wasm,         "build web page with Emscripten")           \
-    X(create_generate_lots_of_random_sudoku,    "build a program that can generate lots of random sudoku's")        \
-    X(sudoku_solver_tests,      "build the tests for the sudoku solver")    \
-    X(host_web_with_python3,    "build and use python3 to serve web build on port 8080")        \
+    X(host_web_with_python3,    "build and use python3 to serve web/wasm build on port 8080")           \
+                                                                \
+    X(build_and_run_tests,      "build and run the tests (just sudoku solver stuff for now)")           \
+    X(sudoku_solver_tests,              "build the tests for the sudoku solver")                        \
+    X(generate_lots_of_random_sudoku,   "builds a program to generate lots of random sudoku's")         \
+    X(bench_test_sudoku_solver,         "builds a program to bench test the Solve_Sudoku() function")   \
 
 
 
@@ -114,12 +119,12 @@ int main(int argc, char **argv) {
         flags.debug      = true;
         flags.release    = true;
         flags.wasm       = true;
-        flags.create_generate_lots_of_random_sudoku = true;
-        flags.sudoku_solver_tests = true;
+        flags.sudoku_solver_tests               = true;
+        flags.generate_lots_of_random_sudoku    = true;
+        flags.bench_test_sudoku_solver          = true;
     }
 
-    if (flags.run_tests) {
-        flags.create_generate_lots_of_random_sudoku = true;
+    if (flags.build_and_run_tests) {
         flags.sudoku_solver_tests = true;
     }
 
@@ -155,34 +160,40 @@ int main(int argc, char **argv) {
 
 
     // dont make a build folder if your not building anything.
-    bool building_anything = flags.debug || flags.release || flags.wasm || flags.sudoku_solver_tests || flags.create_generate_lots_of_random_sudoku;
+    bool building_anything = false;
+    building_anything = building_anything || flags.debug || flags.release || flags.wasm;
+    building_anything = building_anything || flags.sudoku_solver_tests;
+    building_anything = building_anything || flags.generate_lots_of_random_sudoku;
+    building_anything = building_anything || flags.bench_test_sudoku_solver;
     if (building_anything) {
         mkdir_if_not_exists(BUILD_FOLDER);
     }
 
     if (flags.debug) {
-        if (!build_debug())         exit(EXIT_FAILURE);
+        if (!do_build_debug())         exit(EXIT_FAILURE);
     }
     if (flags.release) {
-        if (!build_release())       exit(EXIT_FAILURE);
+        if (!do_build_release())       exit(EXIT_FAILURE);
     }
     if (flags.wasm) {
-        if (!build_wasm())          exit(EXIT_FAILURE);
+        if (!do_build_wasm())          exit(EXIT_FAILURE);
     }
     if (flags.sudoku_solver_tests) {
-        if (!build_sudoku_solver_tests())   exit(EXIT_FAILURE);
+        if (!do_build_sudoku_solver_tests())               exit(EXIT_FAILURE);
     }
-    if (flags.create_generate_lots_of_random_sudoku) {
-        if (!build_generate_lots_of_random_sudoku())    exit(EXIT_FAILURE);
+    if (flags.generate_lots_of_random_sudoku) {
+        if (!do_build_generate_lots_of_random_sudoku())    exit(EXIT_FAILURE);
+    }
+    if (flags.bench_test_sudoku_solver) {
+        if (!do_build_bench_test_sudoku_solver())          exit(EXIT_FAILURE);
     }
 
 
-    if (flags.run_tests) {
+    if (flags.build_and_run_tests) {
         // run the tests
         cmd_append(&cmd, BUILD_FOLDER"test_sudoku_solver");
         if (!cmd_run(&cmd))         exit(EXIT_FAILURE);
     }
-
 
     if (flags.host_web_with_python3) {
         printf("==============================================\n");
@@ -258,7 +269,7 @@ void cmd_link_with_raylib(void) {
 
 
 
-bool build_debug(void) {
+bool do_build_debug(void) {
     if (!compile_raylib_library("libraylib_static.a", "PLATFORM_DESKTOP")) return false;
 
     cmd_cc();
@@ -274,7 +285,7 @@ bool build_debug(void) {
     return true;
 }
 
-bool build_release(void) {
+bool do_build_release(void) {
     if (!compile_raylib_library("libraylib_static.a", "PLATFORM_DESKTOP")) return false;
 
     cmd_cc();
@@ -291,7 +302,7 @@ bool build_release(void) {
 }
 
 
-bool build_wasm(void) {
+bool do_build_wasm(void) {
     { // check if the user has emscripten installed
         // https://stackoverflow.com/questions/890894/portable-way-to-find-out-if-a-command-exists-c-c
         if (system("which emcc > /dev/null 2>&1")) {
@@ -341,7 +352,7 @@ bool build_wasm(void) {
     return true;
 }
 
-bool build_sudoku_solver_tests(void) {
+bool do_build_sudoku_solver_tests(void) {
     cmd_cc();
     cmd_c_flags();
     cmd_append(&cmd, "-ggdb"); // debug flag
@@ -354,7 +365,8 @@ bool build_sudoku_solver_tests(void) {
     return true;
 }
 
-static bool build_generate_lots_of_random_sudoku(void) {
+
+static bool do_build_generate_lots_of_random_sudoku(void) {
     cmd_cc();
     cmd_c_flags();
     // cmd_append(&cmd, "-ggdb"); // debug flag
@@ -372,3 +384,20 @@ static bool build_generate_lots_of_random_sudoku(void) {
     return true;
 }
 
+static bool do_build_bench_test_sudoku_solver(void) {
+    cmd_cc();
+    cmd_c_flags();
+    // cmd_append(&cmd, "-ggdb"); // debug flag
+
+    { // were gonna want speed for this one.
+        // cmd_append(&cmd, "-O2");
+        cmd_append(&cmd, "-O3"); // this might be a mistake
+        cmd_append(&cmd, "-march=native");
+    }
+
+    cmd_append(&cmd, "-o", BUILD_FOLDER"bench_test_sudoku_solver");
+    cmd_append(&cmd, SRC_FOLDER"sudoku_solver/bench_test_sudoku_solver.c");
+
+    if (!cmd_run(&cmd)) return false;
+    return true;
+}

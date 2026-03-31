@@ -283,11 +283,6 @@ internal Vec2i cell_to_xy(Sudoku_Solver_Struct *solver, Cell *cell) {
     return result;
 }
 
-// // is this even useful?
-// size_t xy_to_index(s32 x, s32 y) {
-//     return y*NUM_DIGITS + x;
-// }
-
 internal size_t xy_to_box_index(s32 x, s32 y) {
     return y/3*3 + x/3;
 }

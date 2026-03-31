@@ -578,58 +578,6 @@ void test_generate_random_sudoku(void) {
 }
 
 
-
-
-void bench_test_many_sudoku(void) {
-    const char *sudoku_file_path = "./src/sudoku_solver/printable_sudoku_puzzle_4.txt";
-
-    // dont really need any memory management for this.
-    // but Read_Entire_File() expects a valid Arena.
-    Arena a = ZEROED;
-    String many_sudoku_strings = Read_Entire_File(&a, S(sudoku_file_path));
-    TEST_EXPECT_WITH_REASON(many_sudoku_strings.length != 0, "if this file dose not exist, this means i dont know what to do with the copyright for now.");
-
-    u64 i = 0;
-    while (true) {
-        String line = String_Get_Next_Line(&many_sudoku_strings, &i, SGNL_Trim);
-        if (line.length == 0) break;
-
-        Input_Sudoku_Puzzle input = sudoku_string_to_input_puzzle(temp_String_To_C_Str(line));
-        if (line.length != 9*9) TEST_FAIL("line length was not 9*9 was %ld", line.length);
-
-        Sudoku_Solver_Result result = Solve_Sudoku(input);
-        if (!result.sudoku_is_possible)   TEST_FAIL("Sudoku %zu was not possible", i);
-    }
-    TEST_EXPECT_WITH_REASON(true, "finished %zu sudoku's", i);
-}
-
-void bench_test_many_harder_sudoku(void) {
-    const char *sudoku_file_path = "./src/sudoku_solver/printable_sudoku_puzzle_5.txt";
-
-    // dont really need any memory management for this.
-    // but Read_Entire_File() expects a valid Arena.
-    Arena a = ZEROED;
-    String many_sudoku_strings = Read_Entire_File(&a, S(sudoku_file_path));
-    TEST_EXPECT_WITH_REASON(many_sudoku_strings.length != 0, "if this file dose not exist, this means i dont know what to do with the copyright for now.");
-
-    u64 i = 0;
-    while (true) {
-        String line = String_Get_Next_Line(&many_sudoku_strings, &i, SGNL_Trim);
-        if (line.length == 0) break;
-
-        Input_Sudoku_Puzzle input = sudoku_string_to_input_puzzle(temp_String_To_C_Str(line));
-        if (line.length != 9*9) TEST_FAIL("line length was not 9*9 was %ld", line.length);
-
-        Sudoku_Solver_Result result = Solve_Sudoku(input);
-        if (!result.sudoku_is_possible)   TEST_FAIL("Sudoku %zu was not possible", i);
-    }
-    TEST_EXPECT_WITH_REASON(true, "finished %zu sudoku's", i);
-}
-
-
-
-#define DISABLE_SANDBOX     (false)
-
 int main(void) {
     srand(time(NULL));
 
@@ -648,11 +596,7 @@ int main(void) {
 
     ADD_TEST(test_generate_random_sudoku);
 
-    // give these 3 seconds each, if they fail, that just means my solver wasn't fast enough.
-    ADD_TEST(bench_test_many_sudoku,        .timeout_time = 3);
-    ADD_TEST(bench_test_many_harder_sudoku, .timeout_time = 3);
-
-    int number_of_tests_failed = RUN_TESTS(.disable_sandboxing_for_all_tests = DISABLE_SANDBOX);
+    int number_of_tests_failed = RUN_TESTS();
     printf("number of tests failed: %d\n\n", number_of_tests_failed);
     return (number_of_tests_failed == 0) ? 0 : 1;
 }
@@ -669,7 +613,9 @@ Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string) {
         for (size_t i = 0; i < 9; i++) {
             u8 digit = 0;
 
-            char c = sudoku_string[xy_to_index(i, j)];
+            // this is literally the only time i use xy_to_index(),
+            size_t index = j*9 + i; // xy_to_index(i, j);
+            char c = sudoku_string[index];
             bool is_empty_char = false;
             for (size_t k = 0; k < Array_Len(empty_chars); k++) {
                 if (c == empty_chars[k]) {
