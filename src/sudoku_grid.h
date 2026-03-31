@@ -47,11 +47,12 @@ typedef enum {
 
 
 typedef struct {
-    // NO_DIGIT_PLACED means no digit
-    s8 digits[SUDOKU_SIZE][SUDOKU_SIZE];
-
+    // TODO call this cell, or something
     // bitfields describing witch markings are there.
     struct Marking {
+        // NO_DIGIT_PLACED means no digit
+        s8 digit;
+
         // real digits are Black, players digits are marking color
         bool digit_placed_in_solve_mode;
 
@@ -247,9 +248,8 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save);
 Sudoku_Grid_Cell get_grid_cell(Sudoku_Grid *grid, s8 i, s8 j) {
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
     Sudoku_Grid_Cell result = {
-        .digit                          = &grid->digits  [j][i],
-
         // .marking    = &grid->markings[j][i],
+        .digit                          = &grid->markings[j][i].digit,
         .digit_placed_in_solve_mode     = &grid->markings[j][i].digit_placed_in_solve_mode,
         .uncertain                      = &grid->markings[j][i].uncertain,
         .  certain                      = &grid->markings[j][i].certain,
@@ -264,9 +264,8 @@ Sudoku_Cell get_cell(Sudoku *sudoku, s8 i, s8 j) {
     ASSERT(sudoku);
 
     Sudoku_Cell result = {
-        .digit                          = &sudoku->grid.digits  [j][i],
-
         // .marking        = &sudoku->grid.markings[j][i],
+        .digit                          = &sudoku->grid.markings[j][i].digit,
         .digit_placed_in_solve_mode     = &sudoku->grid.markings[j][i].digit_placed_in_solve_mode,
         .uncertain                      = &sudoku->grid.markings[j][i].uncertain,
         .  certain                      = &sudoku->grid.markings[j][i].certain,
