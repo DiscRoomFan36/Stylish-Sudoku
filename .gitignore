@@ -3,5 +3,3 @@ build/
 
 nob
 nob.old
-
-src/sudoku_solver/printable_sudoku_puzzle_*
