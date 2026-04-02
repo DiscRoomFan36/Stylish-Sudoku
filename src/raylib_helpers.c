@@ -65,8 +65,8 @@ internal inline Vector2 RectangleTopLeft(Rectangle rec) {
     return result;
 }
 
-Vector2 RectangleCenter(Rectangle rec) {
-    Vector2 result = {rec.x + rec.width, rec.y + rec.height};
+internal Vector2 RectangleCenter(Rectangle rec) {
+    Vector2 result = {rec.x + rec.width/2, rec.y + rec.height/2};
     return result;
 }
 

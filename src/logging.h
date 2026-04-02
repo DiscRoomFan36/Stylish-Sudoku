@@ -275,6 +275,7 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
 
 void draw_logger_frame(s32 x, s32 y) {
     Context *context = get_context();
+    Theme   *theme   = get_theme();
 
     const f64 time_until_message_fades_away_in_seconds = 5;
 
@@ -316,11 +317,11 @@ void draw_logger_frame(s32 x, s32 y) {
         position.y += y;
 
 
-        Color text_color = context->theme.logger.text_color;
-        if (log.level == LOG_LEVEL_ERROR) text_color = context->theme.logger.error_text_color;
+        Color text_color = theme->logger.text_color;
+        if (log.level == LOG_LEVEL_ERROR) text_color = theme->logger.error_text_color;
 
-        Color color_background = context->theme.logger.box_background;
-        Color color_frame = context->theme.logger.box_frame_color;
+        Color color_background = theme->logger.box_background_color;
+        Color color_frame = theme->logger.box_frame_color;
 
 
         if (log.t > LOGGER_BEFORE_START_FADE_OUT) {

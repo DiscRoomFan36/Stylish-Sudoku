@@ -44,6 +44,7 @@ typedef struct {
 
 
 
+#include "theme.h"
 
 #include "sudoku_grid.h"
 #include "sound.h"
@@ -54,19 +55,6 @@ typedef struct {
 
 
 
-
-
-
-
-
-// funny functions, display the color they represent in VSCode.
-//
-// is the reason I use VSCode to edit colors,
-//
-// even though this feature is because of CSS, (i presume,)
-// its super helpful to have a color picker in your editor.
-#define rgba(_r, _g, _b, _a) ( (Color){.r = (_r), .g = (_g), .b = (_b), .a = (_a*255) + 0.5} )
-#define rgb(r, g, b) rgba((r), (g), (b), 1)
 
 
 
@@ -92,48 +80,6 @@ typedef struct {
 static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_LINE_THICKNESS, "must be true");
 
 #define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 8)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
-
-
-// the Theme or Pallet.
-//
-// this makes it easy to change the theme in the future.
-// just update this struct and the rest of the program will follow suit.
-typedef struct {
-    Color background;
-
-    // things relating to the sudoku. witch is most things.
-    struct {
-        Color cell_background;
-        Color cell_lines;
-        Color box_lines;
-
-        struct {
-            Color   valid_builder;
-            Color   valid_solver;
-            Color invalid_builder;
-            Color invalid_solver;
-
-            Color   valid_marking_certain;
-            Color   valid_marking_uncertain;
-            Color invalid_marking_certain;
-            Color invalid_marking_uncertain;
-        } cell_text;
-
-        // turn "nth bit set" into a color
-        Color cell_color_bitfield[32];
-    } sudoku;
-
-    Color select_highlight;
-
-    struct {
-        Color text_color;
-        Color error_text_color;
-
-        Color box_background;
-        Color box_frame_color;
-    } logger;
-
-} Theme;
 
 
 
@@ -222,8 +168,8 @@ typedef struct {
 
     RenderTexture2D debug_texture;
 
-
-    Theme theme;
+    // call get_theme() instead of using this.
+    Theme theme_base;
 
 } Context;
 
@@ -325,90 +271,7 @@ void init_context(void) {
 #define DebugDraw(draw_call) do { BeginTextureMode(context->debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
 
-
-
-    { // theme stuff
-        Mem_Zero_Struct(&context->theme);
-
-
-        // https://coolors.co/visualizer/7f5539-a68a64-ede0d4-656d4a-414833
-        // const Color pallet_1 = rgb(127, 85, 57);
-        // const Color pallet_2 = rgb(166, 138, 100);
-        const Color pallet_3 = rgb(237, 224, 212);
-        const Color pallet_4 = rgb(101, 109, 74);
-        const Color pallet_5 = rgb(65, 72, 51);
-
-        const Color pallet_select = rgb(0, 162, 255);
-        const Color pallet_error = rgb(255, 55, 0);
-
-        context->theme.background = pallet_3;
-
-        context->theme.sudoku.cell_background    = pallet_3;
-        context->theme.sudoku.cell_lines         = pallet_4;
-        context->theme.sudoku.box_lines          = pallet_5;
-
-
-        context->theme.sudoku.cell_text.  valid_builder            = pallet_5;
-        context->theme.sudoku.cell_text.  valid_solver             = pallet_select;
-        context->theme.sudoku.cell_text.  valid_marking_certain    = pallet_select;
-        context->theme.sudoku.cell_text.  valid_marking_uncertain  = pallet_select;
-
-        context->theme.sudoku.cell_text.invalid_builder            = pallet_5; // TODO make this striped
-        context->theme.sudoku.cell_text.invalid_solver             = pallet_error;
-        context->theme.sudoku.cell_text.invalid_marking_certain    = pallet_error;
-        context->theme.sudoku.cell_text.invalid_marking_uncertain  = pallet_error;
-
-
-        {
-            const Color transparent = rgba(0, 0, 0, 0);
-
-            // Colors stolen from https://sudokupad.app
-            const Color cell_colors[Array_Len(context->theme.sudoku.cell_color_bitfield)] = {
-                transparent,          // cell color 0
-                rgb(214, 214, 214),   // cell color 1
-                rgb(124, 124, 124),   // cell color 2
-                rgb( 36,  36,  36),   // cell color 3
-                rgb(179, 229, 106),   // cell color 4
-                rgb(232, 124, 241),   // cell color 5
-                rgb(228, 150,  50),   // cell color 6
-                rgb(245,  58,  55),   // cell color 7
-                rgb(252, 235,  63),   // cell color 8
-                rgb( 61, 153, 245),   // cell color 9
-                transparent,          // cell color a
-                rgb(204,  51,  17),   // cell color b
-                rgb( 17, 119,  51),   // cell color c
-                rgb(  0,  68, 196),   // cell color d
-                rgb(238, 153, 170),   // cell color e
-                rgb(255, 255,  25),   // cell color f
-                rgb(240,  70, 240),   // cell color g
-                rgb(160,  90,  30),   // cell color h
-                rgb( 51, 187, 238),   // cell color i
-                rgb(145,  30, 180),   // cell color j
-                transparent,          // cell color k
-                rgb(245,  58,  55),   // cell color l
-                rgb( 76, 175,  80),   // cell color m
-                rgb( 61, 153, 245),   // cell color n
-                rgb(249, 136, 134),   // cell color o
-                rgb(149, 208, 151),   // cell color p
-                rgb(158, 204, 250),   // cell color q
-                rgb(170,  12,   9),   // cell color r
-                rgb( 47, 106,  49),   // cell color s
-                rgb(  9,  89, 170),   // cell color t
-            };
-
-            static_assert(sizeof(cell_colors) <= sizeof(context->theme.sudoku.cell_color_bitfield), "just making sure.");
-            Mem_Copy(context->theme.sudoku.cell_color_bitfield, (void*)cell_colors, sizeof(cell_colors));
-        }
-
-        context->theme.select_highlight = pallet_select;
-
-        context->theme.logger.text_color         = pallet_4;
-        context->theme.logger.error_text_color   = pallet_error;
-
-        context->theme.logger.box_background     = pallet_3;
-        context->theme.logger.box_frame_color    = pallet_5;
-    }
-
+    context->theme_base = init_theme();
 }
 void uninit_context(void) {
     Context *context = get_context();
@@ -530,9 +393,56 @@ int main(void) {
 
 
 
+Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid) {
+    Input_Sudoku_Puzzle input_sudoku_puzzle = ZEROED;
+    static_assert(SUDOKU_SIZE == NUM_DIGITS, "these are the same for now, maybe in the future we will have different sized grids for things.");
+
+    for (size_t j = 0; j < SUDOKU_SIZE; j++) {
+        for (size_t i = 0; i < SUDOKU_SIZE; i++) {
+            Sudoku_Cell *cell = get_cell(grid, i, j);
+            u8 digit = Is_Between(cell->digit, 1, 9) ? cell->digit : 0;
+            input_sudoku_puzzle.grid.digits[j][i] = digit;
+        }
+    }
+
+    return input_sudoku_puzzle;
+}
+
+bool ui_button(const char *text, Vector2 position) {
+    Input *input = get_input();
+
+    // TODO Font size
+    Font_And_Size font_and_size = GetFontWithSize(32);
+
+    Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
+
+    Rectangle text_bounds = {
+        position.x, // TODO think about where to place this. maybe in the center?
+        position.y, // TODO think about where to place this. maybe in the center?
+        text_size.x,
+        text_size.y
+    };
+
+    const f32 padding = 10;
+    Rectangle button_bounds = GrowRectangle(text_bounds, padding);
+
+    // TODO draw differently if hovered / clicked.
+    bool button_is_hovered = CheckCollisionPointRec(input->mouse.pos, button_bounds);
+    bool button_is_clicked = button_is_hovered && input->mouse.left.clicked;
+
+    // TODO Color
+    DrawRectangleRec(button_bounds, rgb(175, 175, 175));
+    DrawRectangleLinesEx(button_bounds, 5, rgb(14, 14, 14));
+
+    DrawTextCentered(font_and_size, text, RectangleCenter(button_bounds), rgb(31, 31, 31));
+
+    return button_is_clicked;
+}
+
 
 void do_one_frame() {
     Context *context = get_context();
+    Theme *theme = get_theme();
 
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
 
@@ -540,7 +450,7 @@ void do_one_frame() {
     Arena_Clear(context->scratch);
 
     BeginDrawing();
-    ClearBackground(context->theme.background);
+    ClearBackground(theme->background_color);
 
     {
         s32 prev_window_width   = context->window_width;
@@ -566,6 +476,7 @@ void do_one_frame() {
     //        User Input
     ////////////////////////////////
     update_input();
+    // Input *input = get_input();
 
 
     toggle_when_pressed(&context->debug_draw_smaller_cell_hitbox,    KEY_F1);
@@ -586,16 +497,56 @@ void do_one_frame() {
         Color text_color;
         if (!context->in_solve_mode) {
             text       = "BUILD";
-            text_color = context->theme.sudoku.cell_text.valid_builder; // color is the same as the average text.
+            text_color = theme->sudoku.cell_text.valid_builder_digit_color; // color is the same as the average text.
         } else {
             text       = "SOLVE";
-            text_color = context->theme.sudoku.cell_text.valid_solver;  // color is the same as the average text.
+            text_color = theme->sudoku.cell_text.valid_solver_digit_color;  // color is the same as the average text.
         }
 
         Vector2 text_pos = { context->window_width/2, 10 + FONT_SIZE/2 };
         DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
     }
 
+    { // button to randomly generate a sudoku
+        Vector2 button_position = {context->window_width - 200, 20};
+
+        if (ui_button("Generate Random Sudoku", button_position)) {
+            Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
+
+            log_error("TODO: load random grid into sudoku");
+            (void) random_sudoku;
+        }
+    }
+
+    { // button to solve sudoku
+        // TODO make autolayout system.
+        Vector2 button_position = {context->window_width - 200, 80};
+
+        if (ui_button("Solve Sudoku", button_position)) {
+            Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
+
+            // this is on the main thread for now. its fast enough.
+            Sudoku_Solver_Result sudoku_solver_result = Solve_Sudoku(input_sudoku_puzzle);
+
+            if (sudoku_solver_result.sudoku_is_possible) {
+                log("Sudoku is possible.");
+
+            } else {
+                // TODO do more.
+                log_error("Sudoku is not possible");
+                switch (sudoku_solver_result.reason_not_possible) {
+                case RFSI_BAD_USER_INPUT:
+                case RFSI_NO_POSSIBLE_SOLUTION: {
+                    log_error("Reason: No Possible Solution");
+                } break;
+                case RFSI_MULTIPLE_SOLUTIONS: {
+                    log_error("Reason: More than 1 possible solution");
+                } break;
+                case RFSI_NONE: { UNREACHABLE(); } break;
+                }
+            }
+        }
+    }
 
 
     Vector2 top_left_corner = {
@@ -632,6 +583,11 @@ void do_one_frame() {
 
 #define BESTED_IMPLEMENTATION
 #include "Bested.h"
+
+
+#define THEME_IMPLEMENTATION
+#include "theme.h"
+
 
 #define SUDOKU_IMPLEMENTATION
 #include "sudoku_grid.h"

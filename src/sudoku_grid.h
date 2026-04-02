@@ -315,6 +315,7 @@ internal void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds)
 //
 void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height) {
     Context *context = get_context();
+    Theme   *theme   = get_theme();
 
 
     Draw_Sudoku_Boundary bounds = {
@@ -800,7 +801,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                 color_bits.allocator = context->scratch;
 
                 #define MAX_BITS_SET    (sizeof(cell->color_bitfield)*8)
-                static_assert(Array_Len(context->theme.sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
+                static_assert(Array_Len(theme->sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
 
                 // loop over all bits, and get the index's of the colors.
                 for (u32 k = 0; k < MAX_BITS_SET; k++) {
@@ -809,13 +810,13 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
 
                 // were always gonna draw the cell background, because some cell colors are transparent.
-                DrawRectangleRec(cell_bounds, context->theme.sudoku.cell_background);
+                DrawRectangleRec(cell_bounds, theme->sudoku.cell_background_color);
 
                 if (color_bits.count == 0) {
                     // do nothing.
                 } else if (color_bits.count == 1) {
                     // a very obvious special case. only one color
-                    DrawRectangleRec(cell_bounds, context->theme.sudoku.cell_color_bitfield[color_bits.items[0]]);
+                    DrawRectangleRec(cell_bounds, theme->sudoku.cell_color_bitfield[color_bits.items[0]]);
                 } else {
 
                     //
@@ -850,7 +851,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                         points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
 
                         if (context->debug_draw_color_points) {
-                            Color color = context->theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                            Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
                             DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
                         }
                     }
@@ -901,7 +902,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                         ASSERT(seen_start && seen_end);
                         ASSERT(fan_points_count <= 5);
 
-                        Color color = context->theme.sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                        Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
                         for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
                             fan_points[fan_index].x += cell_bounds.x;
                             fan_points[fan_index].y += cell_bounds.y;
@@ -916,7 +917,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
             { // draw cell surrounding frame
                 Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
-                DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, context->theme.sudoku.cell_lines);
+                DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, theme->sudoku.cell_lines_color);
             }
 
 
@@ -939,19 +940,19 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                 Color text_color;
                 if        (!is_an_invalid_digit && !placed_in_solve_mode) {
                     // normal builder digit
-                    text_color = context->theme.sudoku.cell_text.  valid_builder;
+                    text_color = theme->sudoku.cell_text.  valid_builder_digit_color;
 
                 } else if (!is_an_invalid_digit &&  placed_in_solve_mode) {
                     // normal solver digit
-                    text_color = context->theme.sudoku.cell_text.  valid_solver;
+                    text_color = theme->sudoku.cell_text.  valid_solver_digit_color;
 
                 } else if ( is_an_invalid_digit && !placed_in_solve_mode) {
                     // invalid builder digit
-                    text_color = context->theme.sudoku.cell_text.invalid_builder;
+                    text_color = theme->sudoku.cell_text.invalid_builder_digit_color;
 
                 } else if ( is_an_invalid_digit &&  placed_in_solve_mode) {
                     // invalid solver digit
-                    text_color = context->theme.sudoku.cell_text.invalid_solver;
+                    text_color = theme->sudoku.cell_text.invalid_solver_digit_color;
 
                 } else {
                     UNREACHABLE();
@@ -979,9 +980,9 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                         const char *text = TextFormat("%d", uncertain_numbers.items[k]);
                         Color text_color;
                         if (index_in_array(invalid_digits_array, uncertain_numbers.items[k]) == -1) {
-                            text_color = context->theme.sudoku.cell_text.  valid_marking_uncertain;
+                            text_color = theme->sudoku.cell_text.  valid_marking_uncertain_digit_color;
                         } else {
-                            text_color = context->theme.sudoku.cell_text.invalid_marking_uncertain;
+                            text_color = theme->sudoku.cell_text.invalid_marking_uncertain_digit_color;
                         }
 
                         Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
@@ -1024,9 +1025,9 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
                         Color text_color;
                         if (index_in_array(invalid_digits_array, n) == -1) {
-                            text_color = context->theme.sudoku.cell_text.  valid_marking_certain;
+                            text_color = theme->sudoku.cell_text.  valid_marking_certain_digit_color;
                         } else {
-                            text_color = context->theme.sudoku.cell_text.invalid_marking_certain;
+                            text_color = theme->sudoku.cell_text.invalid_marking_certain_digit_color;
                         }
 
                         DrawTextCodepoint(font_and_size.font, c, char_pos, font_and_size.size, text_color);
@@ -1110,7 +1111,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                 DrawRectangleFrameRec(
                     GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2),
                     SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                    context->theme.sudoku.box_lines
+                    theme->sudoku.box_lines_color
                 );
             }
         }
@@ -1129,7 +1130,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             DrawRectangleFrameRec(
                 GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS),
                 SUDOKU_CELL_BOARDER_LINE_THICKNESS,
-                context->theme.sudoku.box_lines
+                theme->sudoku.box_lines_color
             );
         }
     }
@@ -1414,7 +1415,8 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
 //////////////////////////////////////////////////////////////////
 
 void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
-    Context *context = get_context();
+    // used to be a call to get_context(), now it is much more clear what this function wants.
+    Theme *theme = get_theme();
 
     ASSERT(sudoku);
 
@@ -1436,7 +1438,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                 Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
                 Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-                Color color = context->theme.select_highlight;
+                Color color = theme->sudoku.select_highlight_color;
 
                 draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines, color);
             }
@@ -1481,7 +1483,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                 Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
                 Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-                Color color = context->theme.select_highlight;
+                Color color = theme->sudoku.select_highlight_color;
 
                 bool prev_no_surrounding_selected = !psis.up && !psis.right && !psis.down && !psis.left;
                 bool curr_no_surrounding_selected = !csis.up && !csis.right && !csis.down && !csis.left;
@@ -1552,7 +1554,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
             Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
             Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
 
-            Color color = context->theme.select_highlight;
+            Color color = theme->sudoku.select_highlight_color;
 
             // if it was the same as last time, just render them normally.
             if (get_cell(prev_grid, i, j)->is_selected) {
