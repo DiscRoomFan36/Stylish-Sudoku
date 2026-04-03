@@ -21,6 +21,14 @@
 
 
 
+typedef struct {
+    Color background_color;
+    // bool has_border; // maybe?
+    Color boarder_color;
+
+    Color text_color;
+} Button_Theme_Elements;
+
 // the Theme or Pallet.
 //
 // this makes it easy to change the theme in the future.
@@ -60,6 +68,18 @@ typedef struct {
         Color box_background_color;
         Color box_frame_color;
     } logger;
+
+    struct {
+        struct {
+            s32 font_size;
+            f32 text_padding;
+            f32 boarder_size;
+
+            Button_Theme_Elements base;
+            Button_Theme_Elements hovered;
+            Button_Theme_Elements clicked;
+        } button;
+    } ui;
 
 } Theme;
 
@@ -107,71 +127,100 @@ Theme init_theme(void) {
 
     theme.background_color = pallet_3;
 
-    theme.sudoku.cell_background_color    = pallet_3;
-    theme.sudoku.cell_lines_color         = pallet_4;
-    theme.sudoku.box_lines_color          = pallet_5;
+    { // sudoku
+        theme.sudoku.cell_background_color    = pallet_3;
+        theme.sudoku.cell_lines_color         = pallet_4;
+        theme.sudoku.box_lines_color          = pallet_5;
 
 
-    theme.sudoku.cell_text.  valid_builder_digit_color            = pallet_5;
-    theme.sudoku.cell_text.  valid_solver_digit_color             = pallet_select;
-    theme.sudoku.cell_text.  valid_marking_certain_digit_color    = pallet_select;
-    theme.sudoku.cell_text.  valid_marking_uncertain_digit_color  = pallet_select;
+        theme.sudoku.cell_text.  valid_builder_digit_color            = pallet_5;
+        theme.sudoku.cell_text.  valid_solver_digit_color             = pallet_select;
+        theme.sudoku.cell_text.  valid_marking_certain_digit_color    = pallet_select;
+        theme.sudoku.cell_text.  valid_marking_uncertain_digit_color  = pallet_select;
 
-    theme.sudoku.cell_text.invalid_builder_digit_color            = pallet_5; // TODO make this striped
-    theme.sudoku.cell_text.invalid_solver_digit_color             = pallet_error;
-    theme.sudoku.cell_text.invalid_marking_certain_digit_color    = pallet_error;
-    theme.sudoku.cell_text.invalid_marking_uncertain_digit_color  = pallet_error;
+        theme.sudoku.cell_text.invalid_builder_digit_color            = pallet_5; // TODO make this striped
+        theme.sudoku.cell_text.invalid_solver_digit_color             = pallet_error;
+        theme.sudoku.cell_text.invalid_marking_certain_digit_color    = pallet_error;
+        theme.sudoku.cell_text.invalid_marking_uncertain_digit_color  = pallet_error;
 
+        { // sudoku cell color bitfield
+            const Color transparent = rgba(0, 0, 0, 0);
 
-    {
-        const Color transparent = rgba(0, 0, 0, 0);
+            // Colors stolen from https://sudokupad.app
+            const Color cell_colors[Array_Len(theme.sudoku.cell_color_bitfield)] = {
+                transparent,          // cell color 0
+                rgb(214, 214, 214),  // cell color 1
+                rgb(124, 124, 124),  // cell color 2
+                rgb( 36,  36,  36),  // cell color 3
+                rgb(179, 229, 106),  // cell color 4
+                rgb(232, 124, 241),  // cell color 5
+                rgb(228, 150,  50),  // cell color 6
+                rgb(245,  58,  55),  // cell color 7
+                rgb(252, 235,  63),  // cell color 8
+                rgb( 61, 153, 245),  // cell color 9
+                transparent,          // cell color a
+                rgb(204,  51,  17),  // cell color b
+                rgb( 17, 119,  51),  // cell color c
+                rgb(  0,  68, 196),  // cell color d
+                rgb(238, 153, 170),  // cell color e
+                rgb(255, 255,  25),  // cell color f
+                rgb(240,  70, 240),  // cell color g
+                rgb(160,  90,  30),  // cell color h
+                rgb( 51, 187, 238),  // cell color i
+                rgb(145,  30, 180),  // cell color j
+                transparent,          // cell color k
+                rgb(245,  58,  55),  // cell color l
+                rgb( 76, 175,  80),  // cell color m
+                rgb( 61, 153, 245),  // cell color n
+                rgb(249, 136, 134),  // cell color o
+                rgb(149, 208, 151),  // cell color p
+                rgb(158, 204, 250),  // cell color q
+                rgb(170,  12,   9),  // cell color r
+                rgb( 47, 106,  49),  // cell color s
+                rgb(  9,  89, 170),  // cell color t
+            };
 
-        // Colors stolen from https://sudokupad.app
-        const Color cell_colors[Array_Len(theme.sudoku.cell_color_bitfield)] = {
-            transparent,          // cell color 0
-            rgb(214, 214, 214),   // cell color 1
-            rgb(124, 124, 124),   // cell color 2
-            rgb( 36,  36,  36),   // cell color 3
-            rgb(179, 229, 106),   // cell color 4
-            rgb(232, 124, 241),   // cell color 5
-            rgb(228, 150,  50),   // cell color 6
-            rgb(245,  58,  55),   // cell color 7
-            rgb(252, 235,  63),   // cell color 8
-            rgb( 61, 153, 245),   // cell color 9
-            transparent,          // cell color a
-            rgb(204,  51,  17),   // cell color b
-            rgb( 17, 119,  51),   // cell color c
-            rgb(  0,  68, 196),   // cell color d
-            rgb(238, 153, 170),   // cell color e
-            rgb(255, 255,  25),   // cell color f
-            rgb(240,  70, 240),   // cell color g
-            rgb(160,  90,  30),   // cell color h
-            rgb( 51, 187, 238),   // cell color i
-            rgb(145,  30, 180),   // cell color j
-            transparent,          // cell color k
-            rgb(245,  58,  55),   // cell color l
-            rgb( 76, 175,  80),   // cell color m
-            rgb( 61, 153, 245),   // cell color n
-            rgb(249, 136, 134),   // cell color o
-            rgb(149, 208, 151),   // cell color p
-            rgb(158, 204, 250),   // cell color q
-            rgb(170,  12,   9),   // cell color r
-            rgb( 47, 106,  49),   // cell color s
-            rgb(  9,  89, 170),   // cell color t
-        };
+            static_assert(sizeof(cell_colors) <= sizeof(theme.sudoku.cell_color_bitfield), "just making sure.");
+            Mem_Copy(theme.sudoku.cell_color_bitfield, (void*)cell_colors, sizeof(cell_colors));
 
-        static_assert(sizeof(cell_colors) <= sizeof(theme.sudoku.cell_color_bitfield), "just making sure.");
-        Mem_Copy(theme.sudoku.cell_color_bitfield, (void*)cell_colors, sizeof(cell_colors));
+        }
 
         theme.sudoku.select_highlight_color = pallet_select;
     }
 
 
-    theme.logger.text_color         = pallet_4;
-    theme.logger.error_text_color   = pallet_error;
+    { // logger
+        theme.logger.text_color         = pallet_4;
+        theme.logger.error_text_color   = pallet_error;
 
-    theme.logger.box_background_color     = pallet_3;
-    theme.logger.box_frame_color    = pallet_5;
+        theme.logger.box_background_color     = pallet_3;
+        theme.logger.box_frame_color    = pallet_5;
+    }
+
+    { // ui
+        { // button
+            // TODO think about these values.
+            theme.ui.button.font_size    = 32;
+            theme.ui.button.text_padding = 10;
+            theme.ui.button.boarder_size =  5;
+
+            theme.ui.button.base    = (Button_Theme_Elements){
+                .background_color = rgb(175, 175, 175),
+                .boarder_color    = rgb(14, 14, 14),
+                .text_color       = rgb(31, 31, 31),
+            };
+            theme.ui.button.hovered = (Button_Theme_Elements){
+                .background_color = rgb(214, 84, 84),
+                .boarder_color    = rgb(14, 14, 14),
+                .text_color       = rgb(31, 31, 31),
+            };
+            theme.ui.button.clicked = (Button_Theme_Elements){
+                .background_color = rgb(61, 72, 221),
+                .boarder_color    = rgb(14, 14, 14),
+                .text_color       = rgb(31, 31, 31),
+            };
+        }
+    }
 
     return theme;
 }

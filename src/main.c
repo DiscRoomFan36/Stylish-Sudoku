@@ -411,8 +411,8 @@ Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid) {
 bool ui_button(const char *text, Vector2 position) {
     Input *input = get_input();
 
-    // TODO Font size
-    Font_And_Size font_and_size = GetFontWithSize(32);
+    Theme *theme = get_theme();
+    Font_And_Size font_and_size = GetFontWithSize(theme->ui.button.font_size);
 
     Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
 
@@ -423,18 +423,27 @@ bool ui_button(const char *text, Vector2 position) {
         text_size.y
     };
 
-    const f32 padding = 10;
-    Rectangle button_bounds = GrowRectangle(text_bounds, padding);
+    Rectangle button_bounds = GrowRectangle(text_bounds, theme->ui.button.text_padding);
 
     // TODO draw differently if hovered / clicked.
     bool button_is_hovered = CheckCollisionPointRec(input->mouse.pos, button_bounds);
     bool button_is_clicked = button_is_hovered && input->mouse.left.clicked;
 
-    // TODO Color
-    DrawRectangleRec(button_bounds, rgb(175, 175, 175));
-    DrawRectangleLinesEx(button_bounds, 5, rgb(14, 14, 14));
+    Button_Theme_Elements *button_theme = &theme->ui.button.base;
+    if (button_is_hovered) button_theme = &theme->ui.button.hovered;
+    if (button_is_clicked) button_theme = &theme->ui.button.clicked;
 
-    DrawTextCentered(font_and_size, text, RectangleCenter(button_bounds), rgb(31, 31, 31));
+    //
+    // TODO
+    //
+    // it would be really cool to transition from current color to new color.
+    // would be an easy lerp / move towards., just need a method of tracking the buttons.
+    //
+
+    DrawRectangleRec(button_bounds, button_theme->background_color);
+    DrawRectangleLinesEx(button_bounds, theme->ui.button.boarder_size, button_theme->boarder_color);
+
+    DrawTextCentered(font_and_size, text, RectangleCenter(button_bounds), button_theme->text_color);
 
     return button_is_clicked;
 }
@@ -508,7 +517,7 @@ void do_one_frame() {
     }
 
     { // button to randomly generate a sudoku
-        Vector2 button_position = {context->window_width - 200, 20};
+        Vector2 button_position = {context->window_width - 250, 20};
 
         if (ui_button("Generate Random Sudoku", button_position)) {
             Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
@@ -520,7 +529,7 @@ void do_one_frame() {
 
     { // button to solve sudoku
         // TODO make autolayout system.
-        Vector2 button_position = {context->window_width - 200, 80};
+        Vector2 button_position = {context->window_width - 250, 80};
 
         if (ui_button("Solve Sudoku", button_position)) {
             Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
