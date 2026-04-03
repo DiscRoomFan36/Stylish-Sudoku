@@ -71,62 +71,6 @@ typedef struct {
 #define INITAL_WINDOW_HEIGHT        (9*80)
 
 
-// in pixels, 60 is highly divisible
-#define SUDOKU_CELL_SIZE                    60
-
-#define SUDOKU_CELL_INNER_LINE_THICKNESS    1.0           // (SUDOKU_CELL_SIZE / 24)       // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
-#define SUDOKU_CELL_BOARDER_LINE_THICKNESS  3.0
-
-static_assert((s32)SUDOKU_CELL_INNER_LINE_THICKNESS <= (s32)SUDOKU_CELL_BOARDER_LINE_THICKNESS, "must be true");
-
-#define SUDOKU_CELL_SMALLER_HITBOX_SIZE     (SUDOKU_CELL_SIZE / 8)        // is it cleaner when its in terms of SUDOKU_CELL_SIZE?
-
-
-
-// TODO put into sudoku file.
-
-#define SELECT_LINE_THICKNESS               (SUDOKU_CELL_SIZE / 12)
-
-
-#define FONT_SIZE                           (SUDOKU_CELL_SIZE / 1)
-
-
-// TODO maybe the markings use a different font? maybe the bold version.
-
-#define FONT_SIZE_UNCERTAIN                 (FONT_SIZE / 3)
-
-#define FONT_SIZE_MARKING_CERTAIN_MAX_SIZE          (SUDOKU_CELL_SIZE / 2.5)
-#define FONT_SIZE_MARKING_CERTAIN_MIN_SIZE          (SUDOKU_CELL_SIZE / 6)
-
-#define MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING  4
-
-
-
-
-#define MARKING_UNCERTAIN_PADDING_UD                        5
-#define MARKING_UNCERTAIN_PADDING_LR                        12
-#define MARKING_UNCERTAIN_PADDING_9_AND_10_EXTRA            10
-
-const Vector2 MARKING_LOCATIONS[SUDOKU_MAX_MARKINGS] = {
-    /*  1 */ {                   MARKING_UNCERTAIN_PADDING_LR,                                                                 MARKING_UNCERTAIN_PADDING_UD},                           // left      top
-    /*  2 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR,                                                                 MARKING_UNCERTAIN_PADDING_UD},                           // right     top
-    /*  3 */ {                   MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_UD - FONT_SIZE_UNCERTAIN},     // left      bottom
-    /*  4 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_UD - FONT_SIZE_UNCERTAIN},     // right     bottom
-    /*  5 */ {SUDOKU_CELL_SIZE/2,                                                                                              MARKING_UNCERTAIN_PADDING_UD},                           // middle    top
-    /*  6 */ {SUDOKU_CELL_SIZE/2,                                                                           SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_UD - FONT_SIZE_UNCERTAIN},     // middle    bottom
-    /*  7 */ {                   MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // left      middle
-    /*  8 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR,                                              SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // right     middle
-    /*  9 */ {                   MARKING_UNCERTAIN_PADDING_LR + MARKING_UNCERTAIN_PADDING_9_AND_10_EXTRA,   SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // left-ish  middle
-    /* 10 */ {SUDOKU_CELL_SIZE - MARKING_UNCERTAIN_PADDING_LR - MARKING_UNCERTAIN_PADDING_9_AND_10_EXTRA,   SUDOKU_CELL_SIZE/2                              - FONT_SIZE_UNCERTAIN/2},   // right-ish middle
-};
-
-
-
-
-
-
-
-
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -429,7 +373,7 @@ bool ui_button(const char *text, Vector2 position) {
     bool button_is_hovered = CheckCollisionPointRec(input->mouse.pos, button_bounds);
     bool button_is_clicked = button_is_hovered && input->mouse.left.clicked;
 
-    Button_Theme_Elements *button_theme = &theme->ui.button.base;
+    Button_Ui_Theme *button_theme = &theme->ui.button.base;
     if (button_is_hovered) button_theme = &theme->ui.button.hovered;
     if (button_is_clicked) button_theme = &theme->ui.button.clicked;
 
@@ -512,8 +456,10 @@ void do_one_frame() {
             text_color = theme->sudoku.cell_text.valid_solver_digit_color;  // color is the same as the average text.
         }
 
-        Vector2 text_pos = { context->window_width/2, 10 + FONT_SIZE/2 };
-        DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_pos, text_color);
+        // TODO put into theme? maybe? this is kinda debug stuff...
+        const f64 font_size = 60;
+        Vector2 text_pos = { context->window_width/2, 10 + font_size/2 };
+        DrawTextCentered(GetFontWithSize(font_size), text, text_pos, text_color);
     }
 
     { // button to randomly generate a sudoku
@@ -557,18 +503,21 @@ void do_one_frame() {
         }
     }
 
+    // const f64 cell_size = 60;
+    f64 cell_size = Min(context->window_width, context->window_height) / SUDOKU_SIZE - 20;
+    cell_size = Max(cell_size, 0);
 
     Vector2 top_left_corner = {
-        (context->window_width /2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
-        (context->window_height/2) - (SUDOKU_SIZE*SUDOKU_CELL_SIZE)/2,
+        (context->window_width /2) - (SUDOKU_SIZE*cell_size)/2,
+        (context->window_height/2) - (SUDOKU_SIZE*cell_size)/2,
     };
 
     handle_and_draw_sudoku(
         context->sudoku,
         top_left_corner.x,
         top_left_corner.y,
-        SUDOKU_SIZE * SUDOKU_CELL_SIZE,
-        SUDOKU_SIZE * SUDOKU_CELL_SIZE
+        SUDOKU_SIZE * cell_size,
+        SUDOKU_SIZE * cell_size
     );
 
 

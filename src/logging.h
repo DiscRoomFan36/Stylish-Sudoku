@@ -273,7 +273,9 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
 
 
 
+// TODO maybe this should take a width and height? like the handle_and_draw_sudoku()?
 void draw_logger_frame(s32 x, s32 y) {
+
     Context *context = get_context();
     Theme   *theme   = get_theme();
 
@@ -295,12 +297,10 @@ void draw_logger_frame(s32 x, s32 y) {
     }
 
 
-    #define LOGGER_FONT_SIZE    (FONT_SIZE/3)
-
     #define LOGGER_PERCENT_BEFORE_START_FADE_OUT   90
     #define LOGGER_BEFORE_START_FADE_OUT           (LOGGER_PERCENT_BEFORE_START_FADE_OUT / 100.0)
 
-    Font_And_Size font_and_size = GetFontWithSize(LOGGER_FONT_SIZE);
+    Font_And_Size font_and_size = GetFontWithSize(theme->logger.font_size);
 
     // draw
     s32 yy = 0;

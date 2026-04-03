@@ -280,21 +280,53 @@ typedef struct Draw_Sudoku_Boundary {
     s32 x, y, width, height;
 
     // min of width and height
-    s32 size;
+    s32 size; // = Min(width, height);
 
-    double cell_size; // = size / 9
+    f64 cell_size; // = size / 9;
+
+    // these should be at least 1 pixel thick.
+    f64 cell_inner_line_thickness; // = cell_size * theme->sudoku.cell_inner_line_thickness_factor;
+    f64 boarder_line_thickness;    // = cell_size * theme->sudoku.boarder_line_thickness_factor;
+
+
+    // TODO add all the other factors here, use the Min()
+    // trick to make sure they are not zero.
+
 } Draw_Sudoku_Boundary;
 
-internal Rectangle get_cell_bounds_with_bounds(Draw_Sudoku_Boundary bounds, s8 i, s8 j) {
+internal Draw_Sudoku_Boundary init_draw_sudoku_boundary_with_x_y_width_and_height(s32 x, s32 y, s32 width, s32 height) {
+    Theme *theme = get_theme();
+
+    s32 size = Min(width, height);
+    f64 cell_size = size / 9.0;
+
+    Draw_Sudoku_Boundary result = {
+        .x = x,
+        .y = y,
+        .width  = width,
+        .height = height,
+
+        .size      = size,
+        .cell_size = cell_size,
+
+        // these should be at least 1 pixel thick
+        .cell_inner_line_thickness = Max(cell_size * theme->sudoku.cell_inner_line_thickness_factor, 1),
+        .boarder_line_thickness    = Max(cell_size * theme->sudoku.boarder_line_thickness_factor   , 1),
+    };
+
+    return result;
+}
+
+internal Rectangle get_cell_bounds_with_bounds(Draw_Sudoku_Boundary draw_bounds, s8 i, s8 j) {
     // while this doesn't necessarily cause problems, i want this to be
     // used wherever get_cell is, and them having the same properties is nice
     ASSERT_VALID_SUDOKU_ADDRESS(i, j);
 
     Rectangle sudoku_cell_bounds = {
-        bounds.x + i * bounds.cell_size,
-        bounds.y + j * bounds.cell_size,
-        bounds.cell_size,
-        bounds.cell_size,
+        draw_bounds.x + i * draw_bounds.cell_size,
+        draw_bounds.y + j * draw_bounds.cell_size,
+        draw_bounds.cell_size,
+        draw_bounds.cell_size,
     };
 
     // maybe round this down, have pixel perfect cells.
@@ -305,7 +337,7 @@ internal Rectangle get_cell_bounds_with_bounds(Draw_Sudoku_Boundary bounds, s8 i
 
 
 
-internal void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds);
+internal void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary draw_bounds);
 
 
 //
@@ -316,20 +348,11 @@ internal void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds)
 void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height) {
     Context *context = get_context();
     Theme   *theme   = get_theme();
+    Input   *input   = get_input();
 
+    ASSERT(sudoku);
 
-    Draw_Sudoku_Boundary bounds = {
-        .x = x,
-        .y = y,
-        .width  = width,
-        .height = height,
-
-        .size      = Min(width, height),
-        .cell_size = Min(width, height) / 9.0,
-    };
-
-    Input *input = get_input();
-
+    Draw_Sudoku_Boundary draw_bounds = init_draw_sudoku_boundary_with_x_y_width_and_height(x, y, width, height);
 
 
     ////////////////////////////////
@@ -367,7 +390,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         }
 
         if (context->debug_draw_cursor_position) {
-            Rectangle rec = get_cell_bounds_with_bounds(bounds, cursor_x, cursor_y);
+            Rectangle rec = get_cell_bounds_with_bounds(draw_bounds, cursor_x, cursor_y);
             DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
         }
     }
@@ -443,7 +466,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Cell *cell       = get_cell(&sudoku->grid, i, j);
-                Rectangle    cell_bounds = get_cell_bounds_with_bounds(bounds, i, j);
+                Rectangle    cell_bounds = get_cell_bounds_with_bounds(draw_bounds, i, j);
 
 
                 // selected stuff
@@ -486,10 +509,16 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Cell *cell       = get_cell(&sudoku->grid, i, j);
-                Rectangle    cell_bounds = get_cell_bounds_with_bounds(bounds, i, j);
+                Rectangle    cell_bounds = get_cell_bounds_with_bounds(draw_bounds, i, j);
 
                 // selected stuff, mouse dragging
-                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, SUDOKU_CELL_SMALLER_HITBOX_SIZE);
+
+                // dose this make sense at smaller sizes?
+                //
+                // TODO check if this works at smaller sizes
+                const f64 cell_smaller_hitbox_size = draw_bounds.cell_size / 8;
+
+                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, cell_smaller_hitbox_size);
                 if (context->debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
 
                 if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
@@ -574,6 +603,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     //              Placing Digits
     ////////////////////////////////////////////////
     if (number_pressed != NO_DIGIT_PLACED) {
+        // pre pass, to figure out what to do.
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
@@ -603,6 +633,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             }
         }
 
+        // post pass, to actually do something based on remove_number_this_press.
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
@@ -652,6 +683,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     //             Removeing Digits
     ////////////////////////////////////////////////
     if (input->keyboard.delete_pressed) {
+        // pre pass, to figure out what to remove
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
@@ -670,7 +702,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             }
         }
 
-
+        // actually remove the layer we decided upon,
         for (u32 j = 0; j < SUDOKU_SIZE; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE; i++) {
                 Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
@@ -696,7 +728,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
 
     ////////////////////////////////////////////////
-    //                Undo / Redo
+    // Add to undo buffer if something just changed
     ////////////////////////////////////////////////
     if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku)) {
         Array_Append(&sudoku->undo_buffer, sudoku->grid);
@@ -705,7 +737,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
 
     ////////////////////////////////////////////////
-    //               Sudoku Logic
+    //        Sudoku Logic - for highlighting
     ////////////////////////////////////////////////
     {
         // here we search for and check if the current digits/markings are
@@ -790,268 +822,327 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     ////////////////////////////////////////////////
     //             draw sudoku grid
     ////////////////////////////////////////////////
-    for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-        for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-            Sudoku_Cell *cell        = get_cell(&sudoku->grid, i, j);
-            Rectangle    cell_bounds = get_cell_bounds_with_bounds(bounds, i, j);
+    for (u32 j = 0; j < SUDOKU_SIZE; j++) for (u32 i = 0; i < SUDOKU_SIZE; i++) {
+        Sudoku_Cell *cell        = get_cell(&sudoku->grid, i, j);
+        Rectangle    cell_bounds = get_cell_bounds_with_bounds(draw_bounds, i, j);
 
 
-            { // draw color shading / cell background
-                Int_Array color_bits = ZEROED;
-                color_bits.allocator = context->scratch;
+        { // draw color shading / cell background
+            Int_Array color_bits = ZEROED;
+            color_bits.allocator = context->scratch;
 
-                #define MAX_BITS_SET    (sizeof(cell->color_bitfield)*8)
-                static_assert(Array_Len(theme->sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
+            #define MAX_BITS_SET    (sizeof(cell->color_bitfield)*8)
+            static_assert(Array_Len(theme->sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
 
-                // loop over all bits, and get the index's of the colors.
-                for (u32 k = 0; k < MAX_BITS_SET; k++) {
-                    if (cell->color_bitfield & (1 << k)) Array_Append(&color_bits, k);
-                }
-
-
-                // were always gonna draw the cell background, because some cell colors are transparent.
-                DrawRectangleRec(cell_bounds, theme->sudoku.cell_background_color);
-
-                if (color_bits.count == 0) {
-                    // do nothing.
-                } else if (color_bits.count == 1) {
-                    // a very obvious special case. only one color
-                    DrawRectangleRec(cell_bounds, theme->sudoku.cell_color_bitfield[color_bits.items[0]]);
-                } else {
-
-                    //
-                    // We're going to split the cell into sections, and paint them with
-                    // the colors the user selected in the bit mask,
-                    //
-                    // first generate points around a circle, place them in the middle of the cell,
-                    // then extend them until there past the edge of the rectangle,
-                    // create a line between the middle and that point,
-                    //
-                    // find the point and line on the rectangle that intersects it,
-                    // fint the intersection with the next point, in the list,
-                    // turns that section into a bunch of triangles and render it.
-                    //
-                    Vector2 points[MAX_BITS_SET];
-                    u32 points_count = color_bits.count;
-
-                    // NOTE this option will always case lag, because its
-                    // turning off and on again in such quick succession,
-                    //
-                    // these guards will help, but if every cell has colors will still slow down.
-                    if (context->debug_draw_color_points) BeginTextureMode(context->debug_texture);
-                    for (u32 point_index = 0; point_index < points_count; point_index++) {
-                        f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
-                        f32 percent = (f32)point_index / (f32)points_count;
-
-                        // -percent makes the points be done in clockwise order.
-                        //
-                        // * SUDOKU_CELL_SIZE means that the points are guaranteed to be outside the cell.
-                        // (but they could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
-                        points[point_index].x = sinf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
-                        points[point_index].y = cosf(-percent * TAU + PI + offset) * SUDOKU_CELL_SIZE + SUDOKU_CELL_SIZE/2;
-
-                        if (context->debug_draw_color_points) {
-                            Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
-                            DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
-                        }
-                    }
-                    if (context->debug_draw_color_points) EndTextureMode();
-
-
-                    Vector2 middle = {SUDOKU_CELL_SIZE/2, SUDOKU_CELL_SIZE/2};
-
-                    Line *rectangle_lines = RectangleToLines((Rectangle){0, 0, SUDOKU_CELL_SIZE, SUDOKU_CELL_SIZE});
-                    u32 rectangle_line_index = 0;
-                    for (u32 point_index = 0; point_index < points_count; point_index++) {
-                        Vector2 fan_points[8] = {middle};
-                        u32 fan_points_count = 1;
-
-                        Vector2 point = points[point_index];
-                        Line line_checking = {.start = middle, .end = point};
-
-                        bool seen_start = false;
-                        bool seen_end   = false;
-
-
-                        // 4 + 1 means we have to check the top edge of the rec again, could probably
-                        // restructure this loop so we dont have to check every edge every time but what ever.
-                        while (rectangle_line_index < 4 + 1) {
-                            Line rec_line = rectangle_lines[rectangle_line_index % 4];
-
-                            Vector2 hit_loc;
-                            bool hit = CheckCollisionLinesL(line_checking, rec_line, &hit_loc);
-                            if (!hit) {
-                                if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner of the rectangle.
-                                rectangle_line_index += 1;
-                                continue;
-                            }
-
-                            if (!seen_start) {
-                                seen_start = true;
-                                fan_points[fan_points_count++] = hit_loc;
-                                line_checking = (Line){.start = middle, .end = points[(point_index+1) % points_count]};
-                                continue;
-                            } else {
-                                seen_end = true;
-                                fan_points[fan_points_count++] = hit_loc;
-                                break;
-                            }
-
-                        }
-
-                        ASSERT(seen_start && seen_end);
-                        ASSERT(fan_points_count <= 5);
-
-                        Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
-                        for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
-                            fan_points[fan_index].x += cell_bounds.x;
-                            fan_points[fan_index].y += cell_bounds.y;
-                        }
-                        DrawTrianglesFromStartPoint(fan_points, fan_points_count, color);
-                    }
-
-                }
+            // loop over all bits, and get the index's of the colors.
+            for (u32 k = 0; k < MAX_BITS_SET; k++) {
+                if (cell->color_bitfield & (1 << k)) Array_Append(&color_bits, k);
             }
 
 
+            // were always gonna draw the cell background, because some cell colors are transparent.
+            DrawRectangleRec(cell_bounds, theme->sudoku.cell_background_color);
 
-            { // draw cell surrounding frame
-                Rectangle bit_bigger = GrowRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
-                DrawRectangleFrameRec(bit_bigger, SUDOKU_CELL_INNER_LINE_THICKNESS, theme->sudoku.cell_lines_color);
-            }
-
-
-            // moved this down here for binding energy.
-            Int_Array *invalid_digits_array = &cell->invalid_digits_array;
-
-            if (cell->digit != NO_DIGIT_PLACED) {
-                // draw placed digit
-
-                // TODO do it smart
-                // char buf[2] = ZEROED;
-                // DrawTextCodepoint();
-                const char *text = TextFormat("%d", cell->digit);
-
-                Vector2 text_position = { cell_bounds.x + SUDOKU_CELL_SIZE/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 };
-
-                bool is_an_invalid_digit  = (index_in_array(invalid_digits_array, cell->digit) != -1);
-                bool placed_in_solve_mode = cell->digit_placed_in_solve_mode;
-
-                Color text_color;
-                if        (!is_an_invalid_digit && !placed_in_solve_mode) {
-                    // normal builder digit
-                    text_color = theme->sudoku.cell_text.  valid_builder_digit_color;
-
-                } else if (!is_an_invalid_digit &&  placed_in_solve_mode) {
-                    // normal solver digit
-                    text_color = theme->sudoku.cell_text.  valid_solver_digit_color;
-
-                } else if ( is_an_invalid_digit && !placed_in_solve_mode) {
-                    // invalid builder digit
-                    text_color = theme->sudoku.cell_text.invalid_builder_digit_color;
-
-                } else if ( is_an_invalid_digit &&  placed_in_solve_mode) {
-                    // invalid solver digit
-                    text_color = theme->sudoku.cell_text.invalid_solver_digit_color;
-
-                } else {
-                    UNREACHABLE();
-                }
-
-
-                DrawTextCentered(GetFontWithSize(FONT_SIZE), text, text_position, text_color);
+            if (color_bits.count == 0) {
+                // do nothing.
+            } else if (color_bits.count == 1) {
+                // a very obvious special case. only one color
+                DrawRectangleRec(cell_bounds, theme->sudoku.cell_color_bitfield[color_bits.items[0]]);
             } else {
-                // draw uncertain and certain digits
-                Int_Array uncertain_numbers = { .allocator = context->scratch };
-                Int_Array certain_numbers   = { .allocator = context->scratch };
 
-                for (u8 k = 0; k <= 9; k++) {
-                    if (cell->uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
-                    if (cell->  certain & (1 << k)) Array_Append(&  certain_numbers, k);
-                }
+                //
+                // We're going to split the cell into sections, and paint them with
+                // the colors the user selected in the bit mask,
+                //
+                // first generate points around a circle, place them in the middle of the cell,
+                // then extend them until they're past the edge of the rectangle,
+                // create a line between the middle and that point,
+                //
+                // find the point and line on the rectangle that intersects it,
+                // fint the intersection with the next point, in the list,
+                // turns that section into a bunch of triangles and render it.
+                //
+                Vector2 points[MAX_BITS_SET];
+                u32 points_count = color_bits.count;
 
+                // NOTE this debug option will always case lag, because its
+                // turning off and on again in such quick succession,
+                //
+                // these guards will help, but if every cell has colors will still slow down.
+                if (context->debug_draw_color_points) BeginTextureMode(context->debug_texture);
 
-                // draw uncertain numbers around the edge of the box
-                if (uncertain_numbers.count) {
-                    ASSERT(uncertain_numbers.count <= Array_Len(MARKING_LOCATIONS));
-                    Font_And_Size font_and_size = GetFontWithSize(FONT_SIZE_UNCERTAIN); // what matters more? speed or binding energy?
-                    for (u32 k = 0; k < uncertain_numbers.count; k++) {
-                        // TODO do it smarter like above.
-                        const char *text = TextFormat("%d", uncertain_numbers.items[k]);
-                        Color text_color;
-                        if (index_in_array(invalid_digits_array, uncertain_numbers.items[k]) == -1) {
-                            text_color = theme->sudoku.cell_text.  valid_marking_uncertain_digit_color;
-                        } else {
-                            text_color = theme->sudoku.cell_text.invalid_marking_uncertain_digit_color;
-                        }
+                for (u32 point_index = 0; point_index < points_count; point_index++) {
+                    f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
+                    f32 percent = (f32)point_index / (f32)points_count;
 
-                        Vector2 text_pos = { cell_bounds.x, cell_bounds.y + font_and_size.size/2 };
-                        text_pos = Vector2Add(text_pos, MARKING_LOCATIONS[k]);
-                        DrawTextCentered(font_and_size, text, text_pos, text_color);
+                    // -percent makes the points be done in clockwise order.
+                    //
+                    // * SUDOKU_CELL_SIZE means that the points are guaranteed to be outside the cell.
+                    // (but they could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
+                    points[point_index].x = sinf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
+                    points[point_index].y = cosf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
+
+                    if (context->debug_draw_color_points) {
+                        Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                        DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
                     }
                 }
 
-
-                // draw small certain numbers in the middle of the box
-                if (certain_numbers.count) {
-                    ASSERT(certain_numbers.count <= SUDOKU_MAX_MARKINGS);
-
-                    s32 font_size = FONT_SIZE_MARKING_CERTAIN_MAX_SIZE;
-                    // the the number of certain numbers is two high, shrink the font size.
-                    if (certain_numbers.count > MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING) {
-                        font_size = Remap(
-                            certain_numbers.count,
-                            MARKING_ALLOWED_CERTAIN_UPTO_BEFORE_SHRINKING, SUDOKU_MAX_MARKINGS,
-                            FONT_SIZE_MARKING_CERTAIN_MAX_SIZE, FONT_SIZE_MARKING_CERTAIN_MIN_SIZE
-                        );
-                    }
-                    Font_And_Size font_and_size = GetFontWithSize(font_size);
-
-                    // get the length of the whole text.
-                    char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
-                    for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
-                    Vector2 total_text_size = MeasureTextEx(font_and_size.font, buf, font_and_size.size, 0);
-                    s32 total_text_length   = total_text_size.x;
+                if (context->debug_draw_color_points) EndTextureMode();
 
 
-                    // draw the text one by one, so we can color
-                    // the text differently for sudoku logic reasons.
-                    Vector2 char_pos = { cell_bounds.x + SUDOKU_CELL_SIZE/2 - total_text_length/2, cell_bounds.y + SUDOKU_CELL_SIZE/2 - total_text_size.y/2 };
+                Vector2 middle = {draw_bounds.cell_size/2, draw_bounds.cell_size/2};
 
-                    for (u32 k = 0; k < certain_numbers.count; k++) {
-                        s64 n = certain_numbers.items[k];
-                        char c = '0' + n;
+                Line *rectangle_lines = RectangleToLines((Rectangle){0, 0, draw_bounds.cell_size, draw_bounds.cell_size});
+                u32 rectangle_line_index = 0;
+                for (u32 point_index = 0; point_index < points_count; point_index++) {
+                    Vector2 fan_points[8] = {middle};
+                    u32 fan_points_count = 1;
+
+                    Vector2 point = points[point_index];
+                    Line line_checking = {.start = middle, .end = point};
+
+                    bool seen_start = false;
+                    bool seen_end   = false;
 
 
-                        Color text_color;
-                        if (index_in_array(invalid_digits_array, n) == -1) {
-                            text_color = theme->sudoku.cell_text.  valid_marking_certain_digit_color;
-                        } else {
-                            text_color = theme->sudoku.cell_text.invalid_marking_certain_digit_color;
+                    // 4 + 1 means we have to check the top edge of the rec again, could probably
+                    // restructure this loop so we dont have to check every edge every time but what ever.
+                    while (rectangle_line_index < 4 + 1) {
+                        Line rec_line = rectangle_lines[rectangle_line_index % 4];
+
+                        Vector2 hit_loc;
+                        bool hit = CheckCollisionLinesL(line_checking, rec_line, &hit_loc);
+                        if (!hit) {
+                            if (seen_start) fan_points[fan_points_count++] = rec_line.end; // get the corner of the rectangle.
+                            rectangle_line_index += 1;
+                            continue;
                         }
 
-                        DrawTextCodepoint(font_and_size.font, c, char_pos, font_and_size.size, text_color);
+                        if (!seen_start) {
+                            seen_start = true;
+                            fan_points[fan_points_count++] = hit_loc;
+                            line_checking = (Line){.start = middle, .end = points[(point_index+1) % points_count]};
+                            continue;
+                        } else {
+                            seen_end = true;
+                            fan_points[fan_points_count++] = hit_loc;
+                            break;
+                        }
 
-
-                        // find the corresponding glyph for this char.
-                        GlyphInfo *g = get_glyph_info_for_char(font_and_size.font, c);
-                        ASSERT(g != NULL);
-
-                        char_pos.x += g->advanceX;
                     }
+
+                    ASSERT(fan_points_count <= 5);
+
+                    // this will crash if the rectangle is <= 0 pixels wide.
+                    // ASSERT(seen_start && seen_end);
+                    if (!(seen_start && seen_end)) {
+                        // TODO de-dup errors.
+                        log_error("when drawing backing color fan, did not find both start and end, was probably to small");
+                        continue;
+                    }
+
+                    Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                    for (u32 fan_index = 0; fan_index < fan_points_count; fan_index++) {
+                        fan_points[fan_index].x += cell_bounds.x;
+                        fan_points[fan_index].y += cell_bounds.y;
+                    }
+                    DrawTrianglesFromStartPoint(fan_points, fan_points_count, color);
+                }
+
+            }
+        }
+
+
+
+        { // draw cell surrounding frame
+            Rectangle bit_bigger = GrowRectangle(cell_bounds, draw_bounds.cell_inner_line_thickness/2);
+            DrawRectangleFrameRec(bit_bigger, draw_bounds.cell_inner_line_thickness, theme->sudoku.cell_lines_color);
+        }
+
+
+        // moved this down here for binding energy.
+        Int_Array *invalid_digits_array = &cell->invalid_digits_array;
+
+        if (cell->digit != NO_DIGIT_PLACED) {
+            // draw placed digit
+
+            // TODO do it smart
+            // char buf[2] = ZEROED;
+            // DrawTextCodepoint();
+            const char *text = TextFormat("%d", cell->digit);
+
+            Vector2 text_position = { cell_bounds.x + draw_bounds.cell_size/2, cell_bounds.y + draw_bounds.cell_size/2 };
+
+            bool is_an_invalid_digit  = (index_in_array(invalid_digits_array, cell->digit) != -1);
+            bool placed_in_solve_mode = cell->digit_placed_in_solve_mode;
+
+            Color text_color;
+            if        (!is_an_invalid_digit && !placed_in_solve_mode) {
+                // normal builder digit
+                text_color = theme->sudoku.cell_text.  valid_builder_digit_color;
+
+            } else if (!is_an_invalid_digit &&  placed_in_solve_mode) {
+                // normal solver digit
+                text_color = theme->sudoku.cell_text.  valid_solver_digit_color;
+
+            } else if ( is_an_invalid_digit && !placed_in_solve_mode) {
+                // invalid builder digit
+                text_color = theme->sudoku.cell_text.invalid_builder_digit_color;
+
+            } else if ( is_an_invalid_digit &&  placed_in_solve_mode) {
+                // invalid solver digit
+                text_color = theme->sudoku.cell_text.invalid_solver_digit_color;
+
+            } else {
+                UNREACHABLE();
+            }
+
+
+            DrawTextCentered(GetFontWithSize(draw_bounds.cell_size * theme->sudoku.text.digit_size_factor), text, text_position, text_color);
+        } else {
+            // draw uncertain and certain digits
+            Int_Array uncertain_numbers = { .allocator = context->scratch };
+            Int_Array certain_numbers   = { .allocator = context->scratch };
+
+            for (u8 k = 0; k <= 9; k++) {
+                if (cell->uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
+                if (cell->  certain & (1 << k)) Array_Append(&  certain_numbers, k);
+            }
+
+
+            // draw uncertain numbers around the edge of the box
+            if (uncertain_numbers.count) {
+                ASSERT(uncertain_numbers.count <= SUDOKU_MAX_MARKINGS);
+                // what matters more? speed or binding energy?
+                const f64 font_size = draw_bounds.cell_size * theme->sudoku.text.uncertain_digit_size_factor; 
+                Font_And_Size font_and_size = GetFontWithSize(font_size);
+
+                //
+                // MARKING_LOCATIONS is the positions that each uncertain number
+                // will be placed into the cell. there are in a range from [0..1],
+                //
+                // takes into account x position, but not y,
+                // make sure to add font_size / 2 to y.
+                //
+
+                // a shortend name, MARKING_LOCATIONS is super long allready.
+                const f64 factor = theme->sudoku.text.uncertain_digit_size_factor;
+                //
+                // NOTE i dont know how these #defines are influenced by
+                // theme->sudoku.text.uncertain_digit_size_factor, could
+                // be that when we change that number, the formatting looks
+                // wack. might have to look into it when the theme gets
+                // the possibility of changing.
+                //
+                #define MARKING_LR_PAD      (12.0 / 60.0)
+                #define MARKING_UD_PAD      ( 5.0 / 60.0)
+                #define MARKING_EXTRA_PAD   (10.0 / 60.0)
+                const Vector2 MARKING_LOCATIONS[SUDOKU_MAX_MARKINGS] = {
+                    /*  1 */ {        MARKING_LR_PAD                    ,         MARKING_UD_PAD           },   // left      top
+                    /*  2 */ {1.0   - MARKING_LR_PAD                    ,         MARKING_UD_PAD           },   // right     top
+                    /*  3 */ {        MARKING_LR_PAD                    , 1.0   - MARKING_UD_PAD - factor  },   // left      bottom
+                    /*  4 */ {1.0   - MARKING_LR_PAD                    , 1.0   - MARKING_UD_PAD - factor  },   // right     bottom
+                    /*  5 */ {1.0/2                                     ,         MARKING_UD_PAD           },   // middle    top
+                    /*  6 */ {1.0/2                                     , 1.0   - MARKING_UD_PAD - factor  },   // middle    bottom
+                    /*  7 */ {        MARKING_LR_PAD                    , 1.0/2 -                  factor/2},   // left      middle
+                    /*  8 */ {1.0   - MARKING_LR_PAD                    , 1.0/2 -                  factor/2},   // right     middle
+                    /*  9 */ {        MARKING_LR_PAD + MARKING_EXTRA_PAD, 1.0/2 -                  factor/2},   // left -ish middle
+                    /* 10 */ {1.0   - MARKING_LR_PAD - MARKING_EXTRA_PAD, 1.0/2 -                  factor/2},   // right-ish middle
+                };
+
+                for (u32 k = 0; k < uncertain_numbers.count; k++) {
+                    // TODO this will fail when introducing non-char markings
+                    // char text[2] = {uncertain_numbers.items[k] + '0', 0};
+                    const char *text = TextFormat("%d", uncertain_numbers.items[k]);
+                    // use EVIL color when digit is ont valid.
+                    Color text_color = theme->sudoku.cell_text.  valid_marking_uncertain_digit_color
+                    if (index_in_array(invalid_digits_array, uncertain_numbers.items[k]) != -1) {
+                        text_color = theme->sudoku.cell_text.invalid_marking_uncertain_digit_color;
+                    }
+
+                    // kinda annoying that we have to do '+ font_size/2', but
+                    // the MARKING_LOCATIONS is allready long enough, and i
+                    // dont care to do more factorizing.
+                    Vector2 text_base_pos = { cell_bounds.x, cell_bounds.y + font_size/2 };
+                    // Lerp here is pretty much a '* draw_bounds.cell_size'
+                    Vector2 lerp_position = {
+                        Lerp(0, draw_bounds.cell_size, MARKING_LOCATIONS[k].x),
+                        Lerp(0, draw_bounds.cell_size, MARKING_LOCATIONS[k].y),
+                    };
+
+                    Vector2 final_text_pos = Vector2Add(text_base_pos, lerp_position);
+                    DrawTextCentered(font_and_size, text, final_text_pos, text_color);
                 }
             }
 
 
-            // hovering
-            if (cell->is_hovering_over) {
-                f32 factor = !cell->is_selected ? 0.2 : 0.05; // make it lighter when it is selected.
-                Color color = Fade(BLACK, factor); // cool trick // @Color?
+            // draw small certain numbers in the middle of the box
+            if (certain_numbers.count) {
+                ASSERT(certain_numbers.count <= SUDOKU_MAX_MARKINGS);
 
-                // NOTE this code is not with the selection code because
-                // it feels better when it acts immediately.
-                DrawRectangleRec(ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2), color);
+                // TODO move into draw_bounds?
+                f64 certain_digit_max_size = draw_bounds.cell_size * theme->sudoku.text.certain_digit_max_size_factor;
+                f64 certain_digit_min_size = draw_bounds.cell_size * theme->sudoku.text.certain_digit_min_size_factor;
+
+                f64 font_size = certain_digit_max_size;
+                // the the number of certain numbers is two high, shrink the font size.
+                if (certain_numbers.count > theme->sudoku.text.allowed_certain_digits_before_shrinking) {
+                    font_size = Remap(
+                        certain_numbers.count,
+                        theme->sudoku.text.allowed_certain_digits_before_shrinking, SUDOKU_MAX_MARKINGS,
+                        certain_digit_max_size, certain_digit_min_size
+                    );
+                }
+                Font_And_Size font_and_size = GetFontWithSize(font_size);
+
+                // get the length of the whole text.
+                char buf[SUDOKU_MAX_MARKINGS+1] = ZEROED;
+                for (u32 k = 0; k < certain_numbers.count; k++) buf[k] = '0' + certain_numbers.items[k];
+                Vector2 total_text_size = MeasureTextEx(font_and_size.font, buf, font_and_size.size, 0);
+                s32 total_text_length   = total_text_size.x;
+
+
+                // draw the text one by one, so we can color
+                // the text differently for sudoku logic reasons.
+                Vector2 char_pos = { cell_bounds.x + draw_bounds.cell_size/2 - total_text_length/2, cell_bounds.y + draw_bounds.cell_size/2 - total_text_size.y/2 };
+
+                for (u32 k = 0; k < certain_numbers.count; k++) {
+                    s64 n = certain_numbers.items[k];
+                    char c = '0' + n;
+
+
+                    Color text_color;
+                    if (index_in_array(invalid_digits_array, n) == -1) {
+                        text_color = theme->sudoku.cell_text.  valid_marking_certain_digit_color;
+                    } else {
+                        text_color = theme->sudoku.cell_text.invalid_marking_certain_digit_color;
+                    }
+
+                    DrawTextCodepoint(font_and_size.font, c, char_pos, font_and_size.size, text_color);
+
+
+                    // find the corresponding glyph for this char.
+                    //
+                    // were drawing this one chat at a time so we can color each char differently.
+                    GlyphInfo *g = get_glyph_info_for_char(font_and_size.font, c);
+                    ASSERT(g != NULL);
+
+                    char_pos.x += g->advanceX;
+                }
             }
+        }
+
+
+        // hovering
+        if (cell->is_hovering_over) {
+            // TODO make this a theme thing?
+            f32 factor = !cell->is_selected ? 0.2 : 0.05; // make it lighter when it is selected.
+            Color color = Fade(BLACK, factor); // cool trick // @Color?
+
+            // NOTE this code is not with the selection code because
+            // it feels better when it acts immediately.
+            DrawRectangleRec(ShrinkRectangle(cell_bounds, draw_bounds.cell_inner_line_thickness/2), color);
         }
     }
 
@@ -1089,7 +1180,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         }
 
 
-        draw_sudoku_selection(sudoku, bounds);
+        draw_sudoku_selection(sudoku, draw_bounds);
     }
 
 
@@ -1098,8 +1189,8 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         // Lines that separate the Boxes
         for (u32 j = 0; j < SUDOKU_SIZE/3; j++) {
             for (u32 i = 0; i < SUDOKU_SIZE/3; i++) {
-                Rectangle ul_box = get_cell_bounds_with_bounds(bounds, i*3,     j*3    );
-                Rectangle dr_box = get_cell_bounds_with_bounds(bounds, i*3 + 2, j*3 + 2);
+                Rectangle ul_box = get_cell_bounds_with_bounds(draw_bounds, i*3,     j*3    );
+                Rectangle dr_box = get_cell_bounds_with_bounds(draw_bounds, i*3 + 2, j*3 + 2);
 
                 Rectangle region_box = {
                     ul_box.x,
@@ -1109,16 +1200,16 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                 };
 
                 DrawRectangleFrameRec(
-                    GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS - SUDOKU_CELL_INNER_LINE_THICKNESS/2),
-                    SUDOKU_CELL_BOARDER_LINE_THICKNESS,
+                    GrowRectangle(region_box, draw_bounds.boarder_line_thickness - draw_bounds.cell_inner_line_thickness/2),
+                    draw_bounds.boarder_line_thickness,
                     theme->sudoku.box_lines_color
                 );
             }
         }
 
         { // this outer box hits 1 extra pixel.
-            Rectangle ul_box = get_cell_bounds_with_bounds(bounds, 0, 0);
-            Rectangle dr_box = get_cell_bounds_with_bounds(bounds, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
+            Rectangle ul_box = get_cell_bounds_with_bounds(draw_bounds, 0, 0);
+            Rectangle dr_box = get_cell_bounds_with_bounds(draw_bounds, SUDOKU_SIZE-1, SUDOKU_SIZE-1);
 
             Rectangle region_box = {
                 ul_box.x,
@@ -1128,8 +1219,8 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             };
 
             DrawRectangleFrameRec(
-                GrowRectangle(region_box, SUDOKU_CELL_BOARDER_LINE_THICKNESS),
-                SUDOKU_CELL_BOARDER_LINE_THICKNESS,
+                GrowRectangle(region_box, draw_bounds.boarder_line_thickness),
+                draw_bounds.boarder_line_thickness,
                 theme->sudoku.box_lines_color
             );
         }
@@ -1414,7 +1505,7 @@ internal void draw_selected_lines_based_on_surrounding_is_selected(Rectangle bou
 //        The Big One  /  Main  /  Draw Sudoku Selection
 //////////////////////////////////////////////////////////////////
 
-void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
+void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary draw_bounds) {
     // used to be a call to get_context(), now it is much more clear what this function wants.
     Theme *theme = get_theme();
 
@@ -1424,6 +1515,9 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
     if (sudoku->selection_animation_array.count > 0) {
         animation = &sudoku->selection_animation_array.items[0];
     }
+
+    const f64 cell_inner_line_thickness = draw_bounds.cell_size * theme->sudoku.cell_inner_line_thickness_factor;
+    const f64 select_line_thickness = draw_bounds.cell_size * theme->sudoku.select.line_thickness_factor;
 
     if (!animation) {
         // what to do if no animation.
@@ -1435,12 +1529,11 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                 Surrounding_Bools surrounding_is_selected = get_surrounding_is_selected(grid, i, j);
                 Surrounding_Bools draw_lines = surrounding_is_selected_to_draw_lines(surrounding_is_selected);
 
-                Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
-                Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+                Rectangle cell_bounds       = get_cell_bounds_with_bounds(draw_bounds, i, j);
+                Rectangle select_bounds     = ShrinkRectangle(cell_bounds, cell_inner_line_thickness/2);
 
-                Color color = theme->sudoku.select_highlight_color;
-
-                draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines, color);
+                Color color = theme->sudoku.select.highlight_color;
+                draw_selected_lines(select_bounds, select_line_thickness, draw_lines, color);
             }
         }
 
@@ -1480,10 +1573,10 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                 // previous_surrounding_is_selected
                 Surrounding_Bools psis = prev_surrounding_is_selected_grid[j][i];
 
-                Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
-                Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+                Rectangle cell_bounds       = get_cell_bounds_with_bounds(draw_bounds, i, j);
+                Rectangle select_bounds     = ShrinkRectangle(cell_bounds, cell_inner_line_thickness/2);
 
-                Color color = theme->sudoku.select_highlight_color;
+                Color color = theme->sudoku.select.highlight_color;
 
                 bool prev_no_surrounding_selected = !psis.up && !psis.right && !psis.down && !psis.left;
                 bool curr_no_surrounding_selected = !csis.up && !csis.right && !csis.down && !csis.left;
@@ -1536,8 +1629,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                     color = Fade(color, 1-factor);
                 }
 
-
-                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, psis, color);
+                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, select_line_thickness, psis, color);
             }
         }
     }
@@ -1551,14 +1643,14 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
             Surrounding_Bools csis = curr_surrounding_is_selected_grid[j][i];
 
-            Rectangle cell_bounds       = get_cell_bounds_with_bounds(bounds, i, j);
-            Rectangle select_bounds     = ShrinkRectangle(cell_bounds, SUDOKU_CELL_INNER_LINE_THICKNESS/2);
+            Rectangle cell_bounds       = get_cell_bounds_with_bounds(draw_bounds, i, j);
+            Rectangle select_bounds     = ShrinkRectangle(cell_bounds, cell_inner_line_thickness/2);
 
-            Color color = theme->sudoku.select_highlight_color;
+            Color color = theme->sudoku.select.highlight_color;
 
             // if it was the same as last time, just render them normally.
             if (get_cell(prev_grid, i, j)->is_selected) {
-                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, csis, color);
+                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, select_line_thickness, csis, color);
                 continue;
             }
 
@@ -1614,7 +1706,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
                         Rectangle rec = Grow_Rectangle_In_Direction(select_bounds, dir, factor/2);
 
-                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                        draw_selected_lines(rec, select_line_thickness, draw_lines, color);
                     }
 
 
@@ -1625,7 +1717,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
                         Rectangle rec = Grow_Rectangle_In_Direction(select_bounds, opp_dir, factor/2);
 
-                        draw_selected_lines(rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                        draw_selected_lines(rec, select_line_thickness, draw_lines, color);
                     }
                 } break;
 
@@ -1690,7 +1782,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
                         draw_lines_extra.as_array[index_corner] = draw_lines.as_array[index_corner];
 
-                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_extra, color);
+                        draw_selected_lines(select_bounds, select_line_thickness, draw_lines_extra, color);
 
                         draw_lines.as_array[index_corner] = false;
                     }
@@ -1698,21 +1790,21 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
                     // so the lines cross each other, and look nice.
                     // also dont want the lines to shrink to zero with 1-factor,
-                    f64 line_thickness_over_width = SELECT_LINE_THICKNESS / (f64)select_bounds.width;
+                    f64 line_thickness_over_width = select_line_thickness / select_bounds.width;
                     f64 inner_side_factor = Remap(factor, 0, 1, 1 + line_thickness_over_width, line_thickness_over_width);
 
                     {
                         Rectangle outer_rec = Grow_Rectangle_In_Direction(select_bounds, opp_dir, factor);
                         Rectangle final_rec = Grow_Rectangle_In_Direction(outer_rec, next_dir, inner_side_factor);
 
-                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                        draw_selected_lines(final_rec, select_line_thickness, draw_lines, color);
                     }
 
                     {
                         Rectangle outer_rec = Grow_Rectangle_In_Direction(select_bounds, opp_next_dir, factor);
                         Rectangle final_rec = Grow_Rectangle_In_Direction(outer_rec, dir, inner_side_factor);
 
-                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                        draw_selected_lines(final_rec, select_line_thickness, draw_lines, color);
                     }
 
                 } break;
@@ -1750,7 +1842,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                         draw_lines_the_small_corners.as_array[index_corner_middle_right] = draw_lines.as_array[index_corner_middle_right];
                         draw_lines_the_small_corners.as_array[index_corner_middle_left]  = draw_lines.as_array[index_corner_middle_left];
 
-                        draw_selected_lines(select_bounds, SELECT_LINE_THICKNESS, draw_lines_the_small_corners, color);
+                        draw_selected_lines(select_bounds, select_line_thickness, draw_lines_the_small_corners, color);
 
                         draw_lines.as_array[index_corner_middle_right] = false;
                         draw_lines.as_array[index_corner_middle_left]  = false;
@@ -1758,7 +1850,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
 
 
                     // so the corners touch.
-                    f64 line_thickness_over_width = SELECT_LINE_THICKNESS / (f64)select_bounds.width;
+                    f64 line_thickness_over_width = select_line_thickness / select_bounds.width;
 
                     f64 half_factor = Remap(factor, 0, 1, 0, 0.5 + line_thickness_over_width/2);
 
@@ -1772,7 +1864,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                         Rectangle outer_rec = Grow_Rectangle_In_Direction(select_bounds, dir_left,   half_factor);
                         Rectangle final_rec = Grow_Rectangle_In_Direction(outer_rec,     dir_middle, inner_side_factor);
 
-                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, this_draw_lines, color);
+                        draw_selected_lines(final_rec, select_line_thickness, this_draw_lines, color);
                     }
 
                     { // right
@@ -1783,7 +1875,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                         Rectangle outer_rec = Grow_Rectangle_In_Direction(select_bounds, dir_right,  half_factor);
                         Rectangle final_rec = Grow_Rectangle_In_Direction(outer_rec,     dir_middle, inner_side_factor);
 
-                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, this_draw_lines, color);
+                        draw_selected_lines(final_rec, select_line_thickness, this_draw_lines, color);
                     }
 
 
@@ -1793,7 +1885,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                         // // this is to shrink down to nothing.
                         Rectangle final_rec = Rectangle_Shrink_Both_Sides(outer_rec, dir_left, 1-factor);
 
-                        draw_selected_lines(final_rec, SELECT_LINE_THICKNESS, draw_lines, color);
+                        draw_selected_lines(final_rec, select_line_thickness, draw_lines, color);
                     }
 
 
@@ -1804,7 +1896,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
                     // draw a shrinking Rect that makes it look like the outside is sinking in.
                     Surrounding_Bools draw_lines = surrounding_bools_all_as(true);
                     Rectangle shrinking_rectangle = ShrinkRectanglePercent(select_bounds, 1-factor);
-                    draw_selected_lines(shrinking_rectangle, SELECT_LINE_THICKNESS, draw_lines, color);
+                    draw_selected_lines(shrinking_rectangle, select_line_thickness, draw_lines, color);
                 } break;
 
 
@@ -1812,7 +1904,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary bounds) {
             }
 
             if (draw_selected_bounds_at_the_end) {
-                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, SELECT_LINE_THICKNESS, csis, color);
+                draw_selected_lines_based_on_surrounding_is_selected(select_bounds, select_line_thickness, csis, color);
             }
         }
     }

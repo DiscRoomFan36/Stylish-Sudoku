@@ -27,7 +27,7 @@ typedef struct {
     Color boarder_color;
 
     Color text_color;
-} Button_Theme_Elements;
+} Button_Ui_Theme;
 
 // the Theme or Pallet.
 //
@@ -57,7 +57,29 @@ typedef struct {
         // turn "nth bit set" into a color
         Color cell_color_bitfield[32];
 
-        Color select_highlight_color;
+        //
+        // factors hare are in terms of cell size
+        //
+        struct {
+            Color highlight_color;
+            f64 line_thickness_factor;
+        } select;
+
+        struct {
+            f64 cell_inner_line_thickness_factor;
+            f64 boarder_line_thickness_factor;
+        };
+
+        struct {
+            f64 digit_size_factor;
+            // TODO maybe the markings use a different font? maybe the bold version.
+            f64 uncertain_digit_size_factor;
+
+            f64 certain_digit_max_size_factor;
+            f64 certain_digit_min_size_factor;
+
+            u64 allowed_certain_digits_before_shrinking;
+        } text;
     } sudoku;
 
 
@@ -67,6 +89,9 @@ typedef struct {
 
         Color box_background_color;
         Color box_frame_color;
+
+        f64 font_size;
+        // f64 percent_before_fade_out; // TODO maybe?
     } logger;
 
     struct {
@@ -75,9 +100,9 @@ typedef struct {
             f32 text_padding;
             f32 boarder_size;
 
-            Button_Theme_Elements base;
-            Button_Theme_Elements hovered;
-            Button_Theme_Elements clicked;
+            Button_Ui_Theme base;
+            Button_Ui_Theme hovered;
+            Button_Ui_Theme clicked;
         } button;
     } ui;
 
@@ -185,7 +210,30 @@ Theme init_theme(void) {
 
         }
 
-        theme.sudoku.select_highlight_color = pallet_select;
+        {
+            theme.sudoku.select.highlight_color = pallet_select;
+            theme.sudoku.select.line_thickness_factor  = 5.0 / 60.0;
+        }
+
+        {
+            const f64 inner_line_thickness_factor = 1.0 / 60.0;
+            theme.sudoku.cell_inner_line_thickness_factor = inner_line_thickness_factor;
+            theme.sudoku.boarder_line_thickness_factor    = inner_line_thickness_factor * 3; // about 3 times as big as inner line
+
+            // there was once an assert that inner line thickness was
+            // smaller than boarder line thickness...
+            // wonder what that was all about...
+        }
+        {
+            const f64 font_size_factor = 1.0; // as big as the cell size.
+            theme.sudoku.text.digit_size_factor           = font_size_factor;
+            theme.sudoku.text.uncertain_digit_size_factor = font_size_factor / 3; // 3 times as small.
+
+            theme.sudoku.text.certain_digit_max_size_factor = 1.0 / 2.5;
+            theme.sudoku.text.certain_digit_min_size_factor = 1.0 / 6;
+
+            theme.sudoku.text.allowed_certain_digits_before_shrinking = 4;
+        }
     }
 
 
@@ -195,6 +243,9 @@ Theme init_theme(void) {
 
         theme.logger.box_background_color     = pallet_3;
         theme.logger.box_frame_color    = pallet_5;
+
+        // this is arbitrary,
+        theme.logger.font_size = 60.0 / 3.0;
     }
 
     { // ui
@@ -204,17 +255,18 @@ Theme init_theme(void) {
             theme.ui.button.text_padding = 10;
             theme.ui.button.boarder_size =  5;
 
-            theme.ui.button.base    = (Button_Theme_Elements){
+            // TODO Colors
+            theme.ui.button.base    = (Button_Ui_Theme){
                 .background_color = rgb(175, 175, 175),
                 .boarder_color    = rgb(14, 14, 14),
                 .text_color       = rgb(31, 31, 31),
             };
-            theme.ui.button.hovered = (Button_Theme_Elements){
+            theme.ui.button.hovered = (Button_Ui_Theme){
                 .background_color = rgb(214, 84, 84),
                 .boarder_color    = rgb(14, 14, 14),
                 .text_color       = rgb(31, 31, 31),
             };
-            theme.ui.button.clicked = (Button_Theme_Elements){
+            theme.ui.button.clicked = (Button_Ui_Theme){
                 .background_color = rgb(61, 72, 221),
                 .boarder_color    = rgb(14, 14, 14),
                 .text_color       = rgb(31, 31, 31),
