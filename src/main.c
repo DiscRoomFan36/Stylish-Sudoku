@@ -281,10 +281,8 @@ int main(void) {
         if (error) {
             log_error("Failed To Load Save '%s': %s", autosave_path, error);
             // TODO make a "clear grid" function.
-            for (u32 j = 0; j < SUDOKU_SIZE; j++) {
-                for (u32 i = 0; i < SUDOKU_SIZE; i++) {
-                    Place_Digit(&context->sudoku->grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
-                }
+            FOREACH_IJ_OF_SUDOKU(i, j) {
+                Place_Digit(&context->sudoku->grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
             }
         } else {
             log("Successfully loaded save file '%s'", autosave_path);
@@ -341,12 +339,10 @@ Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid) {
     Input_Sudoku_Puzzle input_sudoku_puzzle = ZEROED;
     static_assert(SUDOKU_SIZE == NUM_DIGITS, "these are the same for now, maybe in the future we will have different sized grids for things.");
 
-    for (size_t j = 0; j < SUDOKU_SIZE; j++) {
-        for (size_t i = 0; i < SUDOKU_SIZE; i++) {
-            Sudoku_Cell *cell = get_cell(grid, i, j);
-            u8 digit = Is_Between(cell->digit, 1, 9) ? cell->digit : 0;
-            input_sudoku_puzzle.grid.digits[j][i] = digit;
-        }
+    FOREACH_IJ_OF_SUDOKU(i, j) {
+        Sudoku_Cell *cell = get_cell(grid, i, j);
+        u8 digit = Is_Between(cell->digit, 1, 9) ? cell->digit : 0;
+        input_sudoku_puzzle.grid.digits[j][i] = digit;
     }
 
     return input_sudoku_puzzle;
