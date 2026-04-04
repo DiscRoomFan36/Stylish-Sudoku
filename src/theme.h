@@ -210,12 +210,12 @@ Theme init_theme(void) {
 
         }
 
-        {
+        { // select aka is_selected stuff
             theme.sudoku.select.highlight_color = pallet_select;
             theme.sudoku.select.line_thickness_factor  = 5.0 / 60.0;
         }
 
-        {
+        { // line thickness on the grid
             const f64 inner_line_thickness_factor = 1.0 / 60.0;
             theme.sudoku.cell_inner_line_thickness_factor = inner_line_thickness_factor;
             theme.sudoku.boarder_line_thickness_factor    = inner_line_thickness_factor * 3; // about 3 times as big as inner line
@@ -224,7 +224,8 @@ Theme init_theme(void) {
             // smaller than boarder line thickness...
             // wonder what that was all about...
         }
-        {
+
+        { // text, aka the digit font size.
             const f64 font_size_factor = 1.0; // as big as the cell size.
             theme.sudoku.text.digit_size_factor           = font_size_factor;
             theme.sudoku.text.uncertain_digit_size_factor = font_size_factor / 3; // 3 times as small.
