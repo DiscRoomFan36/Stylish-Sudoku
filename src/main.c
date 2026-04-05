@@ -67,8 +67,8 @@ typedef struct {
 
 
 // square for now, change when adding a control panel.
-#define INITAL_WINDOW_WIDTH         (9*80)
-#define INITAL_WINDOW_HEIGHT        (9*80)
+#define INITAL_WINDOW_WIDTH         (16*80)
+#define INITAL_WINDOW_HEIGHT        ( 9*80)
 
 
 
@@ -348,7 +348,131 @@ Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid) {
     return input_sudoku_puzzle;
 }
 
-bool ui_button(const char *text, Vector2 position) {
+
+typedef enum {
+    LAY_UP,
+    LAY_DOWN,
+    LAY_LEFT,
+    LAY_RIGHT,
+} Layout_Direction;
+
+internal const char *layout_direction_to_string(Layout_Direction direction) {
+    switch (direction) {
+    case LAY_UP   : return "Lay_Up";
+    case LAY_DOWN : return "Lay_Down";
+    case LAY_LEFT : return "Lay_Left";
+    case LAY_RIGHT: return "Lay_Right";
+
+    default: return temp_sprintf("(UNKNOWN{%d})", direction);
+    }
+}
+
+
+typedef enum {
+    LAY_IN_PIXELS,
+    LAY_IN_FRACTION,
+} Layout_Amount_Kind;
+
+typedef struct {
+    Layout_Amount_Kind kind;
+    // changes use based on kind.
+    f64 value;
+} Layout_Amount;
+
+internal const char *layout_amount_to_string(Layout_Amount amount) {
+    const char *kind_string = temp_sprintf("(UNKNOWN{%d})", amount.kind);
+    switch (amount.kind) {
+    case LAY_IN_PIXELS   : { kind_string = "Lay_In_Pixels";   } break;
+    case LAY_IN_FRACTION : { kind_string = "Lay_In_Fraction"; } break;
+    }
+
+    return temp_sprintf("(Layout_Amount){ .kind = %s, .value = %.3f }", kind_string, amount.value);
+}
+
+internal Layout_Amount Amount(Layout_Amount_Kind kind, f64 value) {
+    Layout_Amount result = { .kind = kind, .value = value };
+    return result;
+}
+
+
+internal Rectangle layout_take_from(Rectangle *layout, Layout_Direction direction, Layout_Amount amount) {
+    f64 real_amount = amount.value;
+
+    f64 width_or_height = (direction == LAY_UP || direction == LAY_DOWN) ? layout->height : layout->width;
+
+    switch (amount.kind) {
+    case LAY_IN_PIXELS: {
+        real_amount = amount.value;
+    } break;
+    case LAY_IN_FRACTION: {
+        real_amount = width_or_height * amount.value;
+    } break;
+
+    default: UNREACHABLE();
+    }
+
+    if (real_amount > width_or_height) {
+        // TODO maybe provide source code location of caller?
+        log_error("layout ran out of space, with direction %s, amount %s", layout_direction_to_string(direction), layout_amount_to_string(amount));
+
+        // clamp this, the next time someone tries to
+        // get something it will have 0 width / height.
+        //
+        // hope you can handle that.
+        real_amount = width_or_height;
+    }
+
+    switch (direction) {
+    case LAY_UP: {
+        Rectangle result = *layout;
+        result.height = real_amount;
+
+        // shift the layout,
+        layout->y      += real_amount;
+        layout->height -= real_amount;
+
+        return result;
+    }
+
+    case LAY_DOWN: {
+        Rectangle result = *layout;
+        result.y      = layout->y      + real_amount;
+        result.height = layout->height - real_amount;
+
+        // shift the layout,
+        layout->height = real_amount;
+
+        return result;
+    }
+
+    case LAY_LEFT: {
+        Rectangle result = *layout;
+        result.width = real_amount;
+
+        // shift the layout,
+        layout->x     += real_amount;
+        layout->width -= real_amount;
+
+        return result;
+    }
+
+    case LAY_RIGHT: {
+        Rectangle result = *layout;
+        result.x     = layout->x     + real_amount;
+        result.width = layout->width - real_amount;
+
+        // shift the layout,
+        layout->width = real_amount;
+
+        return result;
+    }
+
+    default: UNREACHABLE();
+    }
+}
+
+
+internal bool ui_button(const char *text, Rectangle *layout) {
     Input *input = get_input();
 
     Theme *theme = get_theme();
@@ -356,14 +480,14 @@ bool ui_button(const char *text, Vector2 position) {
 
     Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
 
-    Rectangle text_bounds = {
-        position.x, // TODO think about where to place this. maybe in the center?
-        position.y, // TODO think about where to place this. maybe in the center?
-        text_size.x,
-        text_size.y
-    };
+    f64 text_padding = theme->ui.button.text_padding;
+    f64 button_padding = 10;
+    // only add button padding to the bottom.
+    Rectangle button_total_area = layout_take_from(layout, LAY_UP, Amount(LAY_IN_PIXELS, text_size.y + text_padding*2 + button_padding));
 
-    Rectangle button_bounds = GrowRectangle(text_bounds, theme->ui.button.text_padding);
+    Rectangle button_bounds = button_total_area;
+    button_bounds.height -= button_padding;
+
 
     // TODO draw differently if hovered / clicked.
     bool button_is_hovered = CheckCollisionPointRec(input->mouse.pos, button_bounds);
@@ -379,7 +503,6 @@ bool ui_button(const char *text, Vector2 position) {
     // it would be really cool to transition from current color to new color.
     // would be an easy lerp / move towards., just need a method of tracking the buttons.
     //
-
     DrawRectangleRec(button_bounds, button_theme->background_color);
     DrawRectangleLinesEx(button_bounds, theme->ui.button.boarder_size, button_theme->boarder_color);
 
@@ -389,12 +512,13 @@ bool ui_button(const char *text, Vector2 position) {
 }
 
 
+
 void do_one_frame() {
     Context *context = get_context();
     Theme *theme = get_theme();
 
+    // make sure the sudoku grid did not change between frames.
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
-
 
     Arena_Clear(context->scratch);
 
@@ -415,11 +539,6 @@ void do_one_frame() {
     }
 
 
-    // Clear debug to all zero's
-    DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
-
-
-
 
     ////////////////////////////////
     //        User Input
@@ -428,52 +547,99 @@ void do_one_frame() {
     // Input *input = get_input();
 
 
-    toggle_when_pressed(&context->debug_draw_smaller_cell_hitbox,    KEY_F1);
-    toggle_when_pressed(&context->debug_draw_cursor_position,        KEY_F2);
-    toggle_when_pressed(&context->debug_draw_color_points,           KEY_F3);
+    { // debug stuff
+        // Clear debug to all zero's
+        DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
 
+        toggle_when_pressed(&context->debug_draw_smaller_cell_hitbox,    KEY_F1);
+        toggle_when_pressed(&context->debug_draw_cursor_position,        KEY_F2);
+        toggle_when_pressed(&context->debug_draw_color_points,           KEY_F3);
 
-    toggle_when_pressed(&context->debug_draw_fps,                    KEY_F4);
-    if (context->debug_draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
-
-
-    // TODO maybe it would be better to pass this in as a argument.
-    // local_persist bool in_solve_mode = true;
-    {
-        toggle_when_pressed(&context->in_solve_mode, KEY_B);
-
-        const char *text;
-        Color text_color;
-        if (!context->in_solve_mode) {
-            text       = "BUILD";
-            text_color = theme->sudoku.cell_text.valid_builder_digit_color; // color is the same as the average text.
-        } else {
-            text       = "SOLVE";
-            text_color = theme->sudoku.cell_text.valid_solver_digit_color;  // color is the same as the average text.
-        }
-
-        // TODO put into theme? maybe? this is kinda debug stuff...
-        const f64 font_size = 60;
-        Vector2 text_pos = { context->window_width/2, 10 + font_size/2 };
-        DrawTextCentered(GetFontWithSize(font_size), text, text_pos, text_color);
+        toggle_when_pressed(&context->debug_draw_fps,                    KEY_F4);
+        if (context->debug_draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
     }
 
-    { // button to randomly generate a sudoku
-        Vector2 button_position = {context->window_width - 250, 20};
 
-        if (ui_button("Generate Random Sudoku", button_position)) {
+
+    local_persist f64 percent = 0.7;
+    // percent = fmod(percent + input->time.dt, 1);
+
+    Rectangle total_area = {0, 0, context->window_width, context->window_height};
+    Rectangle sudoku_area = layout_take_from(&total_area, LAY_LEFT, Amount(LAY_IN_FRACTION, percent));
+    Rectangle button_area = total_area;
+
+    DrawRectangleRec(sudoku_area, RED);
+    DrawRectangleRec(total_area, BLUE);
+
+
+    { // layout.sudoku_area
+        // this is definitely some ui thing. ui_label or something
+        //
+        // font + some padding.
+        f32 padding = 10;
+
+        // take some space to make title.
+        Rectangle title_area = layout_take_from(&sudoku_area, LAY_UP, Amount(LAY_IN_PIXELS, theme->title_text_font_size + padding*2));
+
+        DrawRectangleRec(title_area, GREEN);
+
+        // TODO maybe it would be better to pass this in as a argument
+        // to the handle_and_draw_sudoku() function.
+        // local_persist bool in_solve_mode = true;
+        {
+            toggle_when_pressed(&context->in_solve_mode, KEY_B);
+
+            const char *text;
+            Color text_color;
+            if (!context->in_solve_mode) {
+                text       = "BUILD";
+                text_color = theme->sudoku.cell_text.valid_builder_digit_color; // color is the same as the average text.
+            } else {
+                text       = "SOLVE";
+                text_color = theme->sudoku.cell_text.valid_solver_digit_color;  // color is the same as the average text.
+            }
+
+            // TODO change font size with screen size.
+            DrawTextCentered(GetFontWithSize(theme->title_text_font_size), text, RectangleCenter(title_area), text_color);
+        }
+
+        { // the sudoku
+
+            // 10 pixels pad,
+            f64 sudoku_size = Min(sudoku_area.width, sudoku_area.height) - 10*2;
+            sudoku_size = Max(sudoku_size, 0); // dont be negative
+
+            Vector2 center = RectangleCenter(sudoku_area);
+            Vector2 top_left_corner = {
+                center.x - sudoku_size/2,
+                center.y - sudoku_size/2,
+            };
+
+            handle_and_draw_sudoku(
+                context->sudoku,
+                top_left_corner.x,
+                top_left_corner.y,
+                sudoku_size,
+                sudoku_size
+            );
+        }
+
+    }
+
+    { // layout.button_area
+        // give some padding around the edge.
+        button_area = ShrinkRectangle(button_area, theme->ui.button_area_padding);
+
+        // button to randomly generate a sudoku
+        if (ui_button("Generate Random Sudoku", &button_area)) {
             Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
 
             log_error("TODO: load random grid into sudoku");
             (void) random_sudoku;
         }
-    }
 
-    { // button to solve sudoku
-        // TODO make autolayout system.
-        Vector2 button_position = {context->window_width - 250, 80};
-
-        if (ui_button("Solve Sudoku", button_position)) {
+        // button to solve sudoku
+        if (ui_button("Solve Sudoku", &button_area)) {
             Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
 
             // this is on the main thread for now. its fast enough.
@@ -498,23 +664,6 @@ void do_one_frame() {
             }
         }
     }
-
-    // const f64 cell_size = 60;
-    f64 cell_size = Min(context->window_width, context->window_height) / SUDOKU_SIZE - 20;
-    cell_size = Max(cell_size, 0);
-
-    Vector2 top_left_corner = {
-        (context->window_width /2) - (SUDOKU_SIZE*cell_size)/2,
-        (context->window_height/2) - (SUDOKU_SIZE*cell_size)/2,
-    };
-
-    handle_and_draw_sudoku(
-        context->sudoku,
-        top_left_corner.x,
-        top_left_corner.y,
-        SUDOKU_SIZE * cell_size,
-        SUDOKU_SIZE * cell_size
-    );
 
 
     // draw logged messages.

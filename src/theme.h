@@ -36,6 +36,9 @@ typedef struct {
 typedef struct {
     Color background_color;
 
+    // maybe this should be in sudoku?
+    f64 title_text_font_size;
+
     // things relating to the sudoku. witch is most things.
     struct {
         Color cell_background_color;
@@ -95,6 +98,8 @@ typedef struct {
     } logger;
 
     struct {
+        f64 button_area_padding;
+
         struct {
             s32 font_size;
             f32 text_padding;
@@ -151,6 +156,8 @@ Theme init_theme(void) {
     const Color pallet_error = rgb(255, 55, 0);
 
     theme.background_color = pallet_3;
+
+    theme.title_text_font_size = 60;
 
     { // sudoku
         theme.sudoku.cell_background_color    = pallet_3;
@@ -250,6 +257,8 @@ Theme init_theme(void) {
     }
 
     { // ui
+        theme.ui.button_area_padding = 10;
+
         { // button
             // TODO think about these values.
             theme.ui.button.font_size    = 32;

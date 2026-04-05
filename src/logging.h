@@ -20,7 +20,12 @@ typedef struct {
     const char *file;
     s32 line;
 
-    f64 time_of_log;
+    // how many times this message was sent.
+    // TODO better name.
+    u32 message_duplicate_count;
+
+    f64 time_of_first_log;
+    f64 time_of_last_log;
     // for animation
     f64 t;
 
@@ -67,11 +72,16 @@ internal void draw_logger_frame(s32 x, s32 y);
 
 
 internal const char *temp_format_message(Logged_Message log) {
+    const char *duplicate_message_string = "";
+    if (log.message_duplicate_count > 1) {
+        duplicate_message_string = temp_sprintf(" (%u)", log.message_duplicate_count);
+    }
+
     switch (log.level) {
     case LOG_LEVEL_NORMAL:
-        return temp_sprintf("SUDOKU LOG: %s", log.message_c_str);
+        return temp_sprintf("SUDOKU LOG: %s%s", log.message_c_str, duplicate_message_string);
     case LOG_LEVEL_ERROR:
-        return temp_sprintf("%s:%d: ERROR: %s", log.file, log.line, log.message_c_str);
+        return temp_sprintf("%s:%d: ERROR: %s%s", log.file, log.line, log.message_c_str, duplicate_message_string);
     }
 }
 
@@ -96,26 +106,52 @@ internal void print_logged_message(Logged_Message log) {
 
 
 
-void log_impl(Log_Level level, const char *message, const char *file, s32 line) {
+void log_impl(Log_Level level, const char *_message, const char *file, s32 line) {
     Context *context = get_context();
 
+    String message = S(_message);
+
     // no newlines at the end please.
-    ASSERT(message[strlen(message)-1] != '\n');
+    ASSERT(message.data[message.length-1] != '\n');
+
+    // check if this logged message is allready in the messages, to de-dup
+    for (u64 i = 0; i < context->logged_messages_to_display.count; i++) {
+        Logged_Message *this_log = &context->logged_messages_to_display.items[i];
+
+        if (level != this_log->level) continue;
+        if (line  != this_log->line ) continue;
+        // this works, the pointers for these should be the same.
+        if (file  != this_log->file ) continue;
+
+        // if the message 
+        if (!String_Eq(message, this_log->message)) continue;
+
+        // we got a duplicate message.
+        this_log->message_duplicate_count += 1;
+        this_log->time_of_last_log = get_input()->time.now;
+
+        // probably dont print this, dont want to flood the console.
+        // print_logged_message(*this_log);
+
+        return;
+    }
 
 
-
-    Logged_Message log;
+    Logged_Message log = ZEROED;
 
     log.allocator     = Scratch_Get(),
 
     log.level         = level;
-    log.message       = String_Duplicate(log.allocator, S(message), .null_terminate = true);
+    log.message       = String_Duplicate(log.allocator, message, .null_terminate = true);
     log.message_c_str = log.message.data;
     log.file          = file;
     log.line          = line;
 
-    log.time_of_log   = get_input()->time.now;
-    log.t             = 0;
+    log.message_duplicate_count = 1;
+
+    log.time_of_first_log = get_input()->time.now;
+    log.time_of_last_log  = get_input()->time.now;
+    log.t                 = 0;
 
     print_logged_message(log);
 
@@ -278,14 +314,21 @@ void draw_logger_frame(s32 x, s32 y) {
 
     Context *context = get_context();
     Theme   *theme   = get_theme();
+    Input   *input   = get_input();
 
     const f64 time_until_message_fades_away_in_seconds = 5;
 
-    f64 dt = get_input()->time.dt / time_until_message_fades_away_in_seconds;
+    f64 dt = input->time.dt / time_until_message_fades_away_in_seconds;
 
     // update
     for (u64 i = 0; i < context->logged_messages_to_display.count; i++) {
         Logged_Message *log = &context->logged_messages_to_display.items[i];
+
+        // dont update if this is the first time.
+        if (log->time_of_last_log == input->time.now) {
+            log->t = 0; // will reset when duplicate message shows up
+            continue;
+        }
 
         log->t += dt;
         if (log->t >= 1) {
@@ -307,6 +350,7 @@ void draw_logger_frame(s32 x, s32 y) {
     for (u64 i = 0; i < context->logged_messages_to_display.count; i++) {
         Logged_Message log = context->logged_messages_to_display.items[i];
 
+        // TODO make red flash when t == 0, so its shows duplicates better.
         const char *formatted_message = temp_format_message(log);
 
         Vector2 position = ZEROED;
@@ -321,15 +365,15 @@ void draw_logger_frame(s32 x, s32 y) {
         if (log.level == LOG_LEVEL_ERROR) text_color = theme->logger.error_text_color;
 
         Color color_background = theme->logger.box_background_color;
-        Color color_frame = theme->logger.box_frame_color;
+        Color color_frame      = theme->logger.box_frame_color;
 
 
         if (log.t > LOGGER_BEFORE_START_FADE_OUT) {
             f64 factor = Remap(log.t, LOGGER_BEFORE_START_FADE_OUT, 1, 0, 1);
             // slow at the start, then moves fast
-            text_color       = Fade(text_color, 1-(factor*factor*factor));
+            text_color       = Fade(text_color,       1-(factor*factor*factor));
             color_background = Fade(color_background, 1-(factor*factor*factor));
-            color_frame      = Fade(color_frame, 1-(factor*factor*factor));
+            color_frame      = Fade(color_frame,      1-(factor*factor*factor));
         }
 
         s32 max_text_width = 400; // TODO
