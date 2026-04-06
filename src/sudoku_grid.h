@@ -396,7 +396,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             cursor_y = prev_y;
         }
 
-        if (context->debug_draw_cursor_position) {
+        if (context->debug.draw_cursor_position) {
             Rectangle rec = get_cell_bounds_with_bounds(draw_bounds, cursor_x, cursor_y);
             DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
         }
@@ -509,7 +509,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
         // NOTE this begin/end TextureMode stuff is because if it was inside
         // this 9*9 loop, it drags the fps down to 30.
-        if (context->debug_draw_smaller_cell_hitbox) BeginTextureMode(context->debug_texture);
+        if (context->debug.draw_smaller_cell_hitbox) BeginTextureMode(context->debug.debug_texture);
         FOREACH_IJ_OF_SUDOKU(i, j) {
             Sudoku_Cell *cell       = get_cell(&sudoku->grid, i, j);
             Rectangle    cell_bounds = get_cell_bounds_with_bounds(draw_bounds, i, j);
@@ -522,14 +522,14 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             const f64 cell_smaller_hitbox_size = draw_bounds.cell_size / 8;
 
             Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, cell_smaller_hitbox_size);
-            if (context->debug_draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
+            if (context->debug.draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
 
             if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
                 cell->is_selected = when_dragging_to_set_selected_to;
                 cursor_x = i; cursor_y = j; // move the cursor here as well.
             }
         }
-        if (context->debug_draw_smaller_cell_hitbox) EndTextureMode();
+        if (context->debug.draw_smaller_cell_hitbox) EndTextureMode();
 
 
 
@@ -855,7 +855,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                 // turning off and on again in such quick succession,
                 //
                 // these guards will help, but if every cell has colors will still slow down.
-                if (context->debug_draw_color_points) BeginTextureMode(context->debug_texture);
+                if (context->debug.draw_color_points) BeginTextureMode(context->debug.debug_texture);
 
                 for (u32 point_index = 0; point_index < points_count; point_index++) {
                     f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
@@ -868,13 +868,13 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                     points[point_index].x = sinf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
                     points[point_index].y = cosf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
 
-                    if (context->debug_draw_color_points) {
+                    if (context->debug.draw_color_points) {
                         Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
                         DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
                     }
                 }
 
-                if (context->debug_draw_color_points) EndTextureMode();
+                if (context->debug.draw_color_points) EndTextureMode();
 
 
                 Vector2 middle = {draw_bounds.cell_size/2, draw_bounds.cell_size/2};

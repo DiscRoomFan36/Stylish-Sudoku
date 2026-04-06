@@ -43,6 +43,27 @@ typedef struct {
 
 
 
+typedef struct {
+    const char *file;
+    s32 line;
+} Source_Code_Location;
+
+// printf helpers
+#define SCL_Fmt         "%s:%d:"
+#define SCL_Arg(scl)    scl.file, scl.line
+
+#define Get_Source_Code_Location() ( (Source_Code_Location){ .file = __FILE__, .line = __LINE__ } )
+
+bool source_code_location_eq(Source_Code_Location a, Source_Code_Location b) {
+    if (a.line != b.line) return false;
+    // this should work, the pointer would be the same.
+    if (a.file != b.file) return false;
+    return true;
+}
+
+
+
+
 
 #include "theme.h"
 
@@ -70,6 +91,9 @@ typedef struct {
 #define INITAL_WINDOW_WIDTH         (16*80)
 #define INITAL_WINDOW_HEIGHT        ( 9*80)
 
+#define TARGET_FPS  60
+
+
 
 
 
@@ -81,21 +105,24 @@ typedef struct {
 
 
 typedef struct {
-
-    s32     window_width;
-    s32     window_height;
-
-
-    bool    debug_draw_smaller_cell_hitbox;
-    bool    debug_draw_cursor_position;
-    bool    debug_draw_color_points;
-    bool    debug_draw_fps;
-
-
     // all the memory in this program comes from here.
     Arena_Pool pool;
     // resets every frame.
     Arena *scratch;
+
+    s32 window_width;
+    s32 window_height;
+
+    struct {
+        bool draw_smaller_cell_hitbox;
+        bool draw_cursor_position;
+        bool draw_color_points;
+        bool draw_fps;
+
+        bool draw_layout_areas;
+
+        RenderTexture2D debug_texture;
+    } debug;
 
     Input input;
 
@@ -108,9 +135,6 @@ typedef struct {
 
     // TODO is this the right place for this.
     bool in_solve_mode;
-
-
-    RenderTexture2D debug_texture;
 
     // call get_theme() instead of using this.
     Theme theme_base;
@@ -147,34 +171,49 @@ void init_context(void) {
     // just making sure.
     Mem_Zero_Struct(context);
 
+    { // pool
+        Mem_Zero_Struct(&context->pool);
+
+        // SDL_RenderCoordinatesFromWindow
+
+        // here we preallocate some buffers, i was having some trouble trying to
+        // get emscripten to allocate memory with my arena allocators, this is a
+        // hack to give me a bit of room to work with.
+        //
+        // this allocates 32 MB, might be unecessary.
+        //
+        // still less than 1 javascript object.
+        local_persist u8 buffers[NUM_POOL_ARENAS][1 * MEGABYTE];
+        for (u32 i = 0; i < NUM_POOL_ARENAS; i++) {
+            Arena_Add_Buffer_As_Storeage_Space(&context->pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
+        }
+
+        context->scratch = Pool_Get(&context->pool);
+    }
+
     context->window_width  = GetScreenWidth();
     context->window_height = GetScreenHeight();
 
+    { // debug
+        context->debug.draw_smaller_cell_hitbox  = false;
+        context->debug.draw_cursor_position      = false;
+        context->debug.draw_color_points         = false;
+        context->debug.draw_fps                  = false;
+        context->debug.draw_layout_areas         = true;
 
-    context->debug_draw_smaller_cell_hitbox  = false;
-    context->debug_draw_cursor_position      = false;
-    context->debug_draw_color_points         = false;
-    context->debug_draw_fps                  = false;
+        // the perhaps better option would be to make DebugDraw## versions of the draw
+        // functions that buffer the commands until later, but that would require
+        // making a bunch of extra functions...
+        //
+        // another option would be to somehow draw rectangles with depth,
+        // and make debug stuff the most important.
+        context->debug.debug_texture = LoadRenderTexture(context->window_width, context->window_height);
 
+    #define DebugDraw(draw_call) do { BeginTextureMode(context->debug.debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
-    Mem_Zero_Struct(&context->pool);
-
-    // SDL_RenderCoordinatesFromWindow
-
-    // here we preallocate some buffers, i was having some trouble trying to
-    // get emscripten to allocate memory with my arena allocators, this is a
-    // hack to give me a bit of room to work with.
-    //
-    // this allocates 32 MB, might be unecessary.
-    //
-    // still less than 1 javascript object.
-    local_persist u8 buffers[NUM_POOL_ARENAS][1 * MEGABYTE];
-    for (u32 i = 0; i < NUM_POOL_ARENAS; i++) {
-        Arena_Add_Buffer_As_Storeage_Space(&context->pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
     }
 
 
-    context->scratch = Pool_Get(&context->pool);
 
     Mem_Zero_Struct(&context->input);
 
@@ -204,16 +243,6 @@ void init_context(void) {
 
     context->in_solve_mode = true;
 
-    // the perhaps better option would be to make DebugDraw## versions of the draw
-    // functions that buffer the commands until later, but that would require
-    // making a bunch of extra functions...
-    //
-    // another option would be to somehow draw rectangles with depth,
-    // and make debug stuff the most important.
-    context->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
-
-#define DebugDraw(draw_call) do { BeginTextureMode(context->debug_texture); (draw_call);  EndTextureMode(); } while (0)
-
 
     context->theme_base = init_theme();
 }
@@ -221,7 +250,7 @@ void uninit_context(void) {
     Context *context = get_context();
 
     Pool_Free_Arenas(&context->pool);
-    UnloadRenderTexture(context->debug_texture);
+    UnloadRenderTexture(context->debug.debug_texture);
 
     // goodbye pointers.
     Mem_Zero_Struct(&context);
@@ -309,7 +338,7 @@ int main(void) {
     // probably could hit 144fps, but maybe later.
     //
     // also only run this when building for desktop.
-    SetTargetFPS(60);
+    SetTargetFPS(TARGET_FPS);
 
     while (!WindowShouldClose()) {
         do_one_frame();
@@ -472,16 +501,132 @@ internal Rectangle layout_take_from(Rectangle *layout, Layout_Direction directio
 }
 
 
-internal bool ui_button(const char *text, Rectangle *layout) {
-    Input *input = get_input();
+// colors like this are better to lerp / smoothly transition from.
+typedef Vector4 Float_Color;
 
+Float_Color color_to_float_color(Color color) {
+    Float_Color float_color = {
+        .x = color.r / 255.0f,
+        .y = color.g / 255.0f,
+        .z = color.b / 255.0f,
+        .w = color.a / 255.0f,
+    };
+    return float_color;
+}
+
+Color float_color_to_color(Float_Color float_color) {
+    // clamp values from [0..1]
+    Float_Color clamped = {
+        .x = Clamp(float_color.x, 0, 1),
+        .y = Clamp(float_color.y, 0, 1),
+        .z = Clamp(float_color.z, 0, 1),
+        .w = Clamp(float_color.w, 0, 1),
+    };
+    Color color = {
+        .r = Round(clamped.x * 255),
+        .g = Round(clamped.y * 255),
+        .b = Round(clamped.z * 255),
+        .a = Round(clamped.w * 255),
+    };
+    return color;
+}
+
+void move_float_color_towards_color(Float_Color *float_color, Color color, f64 distance) {
+    Float_Color color_as_float_color = color_to_float_color(color);
+    Float_Color new_float_color = Vector4MoveTowards(*float_color, color_as_float_color, distance);
+    *float_color = new_float_color;
+}
+
+
+typedef struct {
+    String text;
+    const char *text_c_str;
+
+    f64 time_since_last_hovered;
+    f64 time_since_last_clicked;
+
+    struct {
+        Float_Color background_color;
+        Float_Color boarder_color;
+        Float_Color text_color;
+    } current_theme;
+
+    // useful to check if this was just made this frame.
+    bool was_created_this_frame;
+
+    Source_Code_Location source_code_location;
+
+    // probably wasteful to have 1 allocator per button,
+    // but where else are we gonna get the memory for the text?
+    Arena *allocator;
+} UI_Button_Data;
+
+typedef struct {
+    _Array_Header_;
+    UI_Button_Data *items;
+} UI_Button_Data_Array;
+
+// TODO get an allocator with pool_get()
+global_variable UI_Button_Data_Array global_ui_button_data_array = ZEROED;
+
+UI_Button_Data *get_ui_button_data(String text, Source_Code_Location source_code_location) {
+    for (u64 i = 0; i < global_ui_button_data_array.count; i++) {
+        UI_Button_Data *this = &global_ui_button_data_array.items[i];
+
+        if (!source_code_location_eq(source_code_location, this->source_code_location)) continue;
+
+        // TODO use # parseing to make it so we can give buttons different names,
+        if (!String_Eq(text, this->text)) continue;
+
+        // this is the same button
+        this->was_created_this_frame = false;
+        return this;
+    }
+
+    // make something new.
+    UI_Button_Data *new_button_data = Array_Add_Clear(&global_ui_button_data_array, 1);
+
+    new_button_data->allocator = Scratch_Get();
+
+    new_button_data->text = String_Duplicate(new_button_data->allocator, text, .null_terminate = true);
+    new_button_data->text_c_str = text.data;
+
+    new_button_data->source_code_location = source_code_location;
+
+    // the mirror of `this->was_created_this_frame = false;`
+    new_button_data->was_created_this_frame = true;
+
+    printf("New button! [%s]\n", new_button_data->text_c_str);
+
+    return new_button_data;
+}
+
+
+
+#define ui_button(text, layout_ptr) ui_button_impl(text, layout_ptr, Get_Source_Code_Location())
+
+internal bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location source_code_location) {
+    Input *input = get_input();
     Theme *theme = get_theme();
+
+
+    UI_Button_Data *ui_button_data = get_ui_button_data(S(_text), source_code_location);
+
+    if (ui_button_data->was_created_this_frame) {
+        // do some setup.
+        //
+        // otherwise these would start from 0,
+        ui_button_data->current_theme.background_color = color_to_float_color(theme->ui.button.base.background_color);
+        ui_button_data->current_theme.boarder_color    = color_to_float_color(theme->ui.button.base.boarder_color   );
+        ui_button_data->current_theme.text_color       = color_to_float_color(theme->ui.button.base.text_color      );
+    }
+
     Font_And_Size font_and_size = GetFontWithSize(theme->ui.button.font_size);
 
-    Vector2 text_size = MeasureTextEx(font_and_size.font, text, font_and_size.size, 0);
+    Vector2 text_size = MeasureTextEx(font_and_size.font, ui_button_data->text_c_str, font_and_size.size, 0);
 
-    f64 text_padding = theme->ui.button.text_padding;
-    f64 button_padding = 10;
+    f64 text_padding   = theme->ui.button.text_padding;
+    f64 button_padding = theme->ui.between_button_padding;
     // only add button padding to the bottom.
     Rectangle button_total_area = layout_take_from(layout, LAY_UP, Amount(LAY_IN_PIXELS, text_size.y + text_padding*2 + button_padding));
 
@@ -493,20 +638,62 @@ internal bool ui_button(const char *text, Rectangle *layout) {
     bool button_is_hovered = CheckCollisionPointRec(input->mouse.pos, button_bounds);
     bool button_is_clicked = button_is_hovered && input->mouse.left.clicked;
 
-    Button_Ui_Theme *button_theme = &theme->ui.button.base;
-    if (button_is_hovered) button_theme = &theme->ui.button.hovered;
-    if (button_is_clicked) button_theme = &theme->ui.button.clicked;
+    { // move the current theme towards the new theme if they are different.
+        Button_Ui_Theme *button_theme = &theme->ui.button.base;
+        if (button_is_hovered) button_theme = &theme->ui.button.hovered;
+        if (button_is_clicked) button_theme = &theme->ui.button.clicked;
 
-    //
-    // TODO
-    //
-    // it would be really cool to transition from current color to new color.
-    // would be an easy lerp / move towards., just need a method of tracking the buttons.
-    //
-    DrawRectangleRec(button_bounds, button_theme->background_color);
-    DrawRectangleLinesEx(button_bounds, theme->ui.button.boarder_size, button_theme->boarder_color);
+        if (!Mem_Eq(&ui_button_data->current_theme, button_theme, sizeof(ui_button_data->current_theme))) {
+            // not the same, we need to move towards the new theme.
+            if (button_is_clicked) {
+                // click events happen for only 1 frame, so we need to snap towards this theme...
+                //
+                // maybe we can just turn this speed up super high?
+                ui_button_data->current_theme.background_color = color_to_float_color(button_theme->background_color);
+                ui_button_data->current_theme.boarder_color    = color_to_float_color(button_theme->boarder_color   );
+                ui_button_data->current_theme.text_color       = color_to_float_color(button_theme->text_color      );
 
-    DrawTextCentered(font_and_size, text, RectangleCenter(button_bounds), button_theme->text_color);
+            } else {
+
+                // every second, move 0.05 towards the target color.
+                //
+                // colors are from [0..1] in rgba, so the max distance something could be is 4,
+                // and would take 80 seconds to move from transparent black, to full white...
+                //
+                // a better solution probably exists, but this is good enough for now.
+                const f64 factor = 0.05 * (input->time.dt * TARGET_FPS);
+                // not the best solution...
+                move_float_color_towards_color(&ui_button_data->current_theme.background_color, button_theme->background_color, factor);
+                move_float_color_towards_color(&ui_button_data->current_theme.boarder_color,    button_theme->boarder_color,    factor);
+                move_float_color_towards_color(&ui_button_data->current_theme.text_color,       button_theme->text_color,       factor);
+
+                //
+                // i think there was a talk by casey in the tower, (a ThePrimeagen thing), where he talked about
+                // animation systems, i think the code i have now is a dead end. they way he suggested was
+                // to make a map? or something that has values from 0 to 1, where every frame they get
+                // decreased, except the one you want to go up, want then the output is a blend of
+                // the results in that map.
+                //
+                // so, all that said,
+                //
+                // TODO re-watch that section and implement something like that.
+                //
+            }
+        }
+    }
+
+    // it is important that the segments be both:
+    //   a. the same
+    //        for obvious reasons.
+    //   b. above 4
+    //        when below 4, raylib will calculate the number of segments needed
+    //        by itself, and these 2 function calls can produce different results
+    //        for what the segments need to be.)
+    const s32 segments = 5;
+    DrawRectangleRounded       (button_bounds, theme->ui.button.roundness, segments,                                float_color_to_color(ui_button_data->current_theme.background_color));
+    DrawRectangleRoundedLinesEx(button_bounds, theme->ui.button.roundness, segments, theme->ui.button.boarder_size, float_color_to_color(ui_button_data->current_theme.boarder_color));
+
+    DrawTextCentered(font_and_size, ui_button_data->text_c_str, RectangleCenter(button_bounds), float_color_to_color(ui_button_data->current_theme.text_color));
 
     return button_is_clicked;
 }
@@ -533,8 +720,8 @@ void do_one_frame() {
         context->window_height   = GetScreenHeight();
 
         if (prev_window_width != context->window_width || prev_window_height != context->window_height) {
-            UnloadRenderTexture(context->debug_texture);
-            context->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
+            UnloadRenderTexture(context->debug.debug_texture);
+            context->debug.debug_texture = LoadRenderTexture(context->window_width, context->window_height);
         }
     }
 
@@ -551,12 +738,14 @@ void do_one_frame() {
         // Clear debug to all zero's
         DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
 
-        toggle_when_pressed(&context->debug_draw_smaller_cell_hitbox,    KEY_F1);
-        toggle_when_pressed(&context->debug_draw_cursor_position,        KEY_F2);
-        toggle_when_pressed(&context->debug_draw_color_points,           KEY_F3);
+        toggle_when_pressed(&context->debug.draw_smaller_cell_hitbox,    KEY_F1);
+        toggle_when_pressed(&context->debug.draw_cursor_position,        KEY_F2);
+        toggle_when_pressed(&context->debug.draw_color_points,           KEY_F3);
 
-        toggle_when_pressed(&context->debug_draw_fps,                    KEY_F4);
-        if (context->debug_draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
+        toggle_when_pressed(&context->debug.draw_fps,                    KEY_F4);
+        if (context->debug.draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
+
+        toggle_when_pressed(&context->debug.draw_layout_areas, KEY_F5);
     }
 
 
@@ -564,24 +753,28 @@ void do_one_frame() {
     local_persist f64 percent = 0.7;
     // percent = fmod(percent + input->time.dt, 1);
 
-    Rectangle total_area = {0, 0, context->window_width, context->window_height};
-    Rectangle sudoku_area = layout_take_from(&total_area, LAY_LEFT, Amount(LAY_IN_FRACTION, percent));
-    Rectangle button_area = total_area;
+    Rectangle layout_total_area = {0, 0, context->window_width, context->window_height};
+    Rectangle layout_sudoku_area = layout_take_from(&layout_total_area, LAY_LEFT, Amount(LAY_IN_FRACTION, percent));
+    Rectangle layout_button_area = layout_total_area;
 
-    DrawRectangleRec(sudoku_area, RED);
-    DrawRectangleRec(total_area, BLUE);
+    if (context->debug.draw_layout_areas) {
+        DebugDraw(DrawRectangleRec(layout_total_area,  ColorAlpha(BLUE, 0.7)));
+    }
 
 
-    { // layout.sudoku_area
+    { // layout_sudoku_area
         // this is definitely some ui thing. ui_label or something
         //
         // font + some padding.
         f32 padding = 10;
 
         // take some space to make title.
-        Rectangle title_area = layout_take_from(&sudoku_area, LAY_UP, Amount(LAY_IN_PIXELS, theme->title_text_font_size + padding*2));
+        Rectangle layout_title_area = layout_take_from(&layout_sudoku_area, LAY_UP, Amount(LAY_IN_PIXELS, theme->title_text_font_size + padding*2));
 
-        DrawRectangleRec(title_area, GREEN);
+        if (context->debug.draw_layout_areas) {
+            DebugDraw(DrawRectangleRec(layout_sudoku_area,  ColorAlpha(RED, 0.7)));
+            DebugDraw(DrawRectangleRec(layout_title_area, ColorAlpha(GREEN, 0.7)));
+        }
 
         // TODO maybe it would be better to pass this in as a argument
         // to the handle_and_draw_sudoku() function.
@@ -600,16 +793,16 @@ void do_one_frame() {
             }
 
             // TODO change font size with screen size.
-            DrawTextCentered(GetFontWithSize(theme->title_text_font_size), text, RectangleCenter(title_area), text_color);
+            DrawTextCentered(GetFontWithSize(theme->title_text_font_size), text, RectangleCenter(layout_title_area), text_color);
         }
 
         { // the sudoku
 
             // 10 pixels pad,
-            f64 sudoku_size = Min(sudoku_area.width, sudoku_area.height) - 10*2;
+            f64 sudoku_size = Min(layout_sudoku_area.width, layout_sudoku_area.height) - 10*2;
             sudoku_size = Max(sudoku_size, 0); // dont be negative
 
-            Vector2 center = RectangleCenter(sudoku_area);
+            Vector2 center = RectangleCenter(layout_sudoku_area);
             Vector2 top_left_corner = {
                 center.x - sudoku_size/2,
                 center.y - sudoku_size/2,
@@ -626,12 +819,33 @@ void do_one_frame() {
 
     }
 
-    { // layout.button_area
+    { // layout_button_area
         // give some padding around the edge.
-        button_area = ShrinkRectangle(button_area, theme->ui.button_area_padding);
+        layout_button_area = ShrinkRectangle(layout_button_area, theme->ui.button_area_padding);
+
+        // TODO more ui stuff.
+        /*
+        Rectangle_or_something scroll_able = ui_push_scrollable_area(&layout_button_area); {
+            ui_push( ui_dropdown_menu("Debug Controls") )
+            if (ui_checkbox("debug cell hitbox's")) {
+
+        }
+
+            ui_pop();
+        } ui_pop();
+        */
+
+
+        // TODO make a bunch of debug toggles.
+        //
+        // but have them in a drop down area
+
+        if (ui_button("Toggle Build / Solve Mode", &layout_button_area)) {
+            context->in_solve_mode = !context->in_solve_mode;
+        }
 
         // button to randomly generate a sudoku
-        if (ui_button("Generate Random Sudoku", &button_area)) {
+        if (ui_button("Generate Random Sudoku", &layout_button_area)) {
             Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
 
             log_error("TODO: load random grid into sudoku");
@@ -639,7 +853,7 @@ void do_one_frame() {
         }
 
         // button to solve sudoku
-        if (ui_button("Solve Sudoku", &button_area)) {
+        if (ui_button("Solve Sudoku", &layout_button_area)) {
             Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
 
             // this is on the main thread for now. its fast enough.
@@ -670,7 +884,7 @@ void do_one_frame() {
     draw_logger_frame(10, 40);
 
     // draw the debug stuff.
-    DrawTextureRightsideUp(context->debug_texture.texture, 0, 0);
+    DrawTextureRightsideUp(context->debug.debug_texture.texture, 0, 0);
 
     EndDrawing();
 }

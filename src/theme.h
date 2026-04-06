@@ -99,11 +99,15 @@ typedef struct {
 
     struct {
         f64 button_area_padding;
+        f64 between_button_padding;
 
         struct {
             s32 font_size;
             f32 text_padding;
             f32 boarder_size;
+
+            // [0..1] 1 is full circle (if w == h), 0 is rectangle.
+            f32 roundness;
 
             Button_Ui_Theme base;
             Button_Ui_Theme hovered;
@@ -258,12 +262,15 @@ Theme init_theme(void) {
 
     { // ui
         theme.ui.button_area_padding = 10;
+        theme.ui.between_button_padding = 20;
 
         { // button
             // TODO think about these values.
             theme.ui.button.font_size    = 32;
             theme.ui.button.text_padding = 10;
             theme.ui.button.boarder_size =  5;
+
+            theme.ui.button.roundness = 0.5;
 
             // TODO Colors
             theme.ui.button.base    = (Button_Ui_Theme){
@@ -272,12 +279,12 @@ Theme init_theme(void) {
                 .text_color       = rgb(31, 31, 31),
             };
             theme.ui.button.hovered = (Button_Ui_Theme){
-                .background_color = rgb(214, 84, 84),
+                .background_color = rgb(238, 217, 148),
                 .boarder_color    = rgb(14, 14, 14),
                 .text_color       = rgb(31, 31, 31),
             };
             theme.ui.button.clicked = (Button_Ui_Theme){
-                .background_color = rgb(61, 72, 221),
+                .background_color = rgb(221, 61, 61),
                 .boarder_color    = rgb(14, 14, 14),
                 .text_color       = rgb(31, 31, 31),
             };

@@ -17,8 +17,7 @@ typedef struct {
     String message;
     const char *message_c_str;
 
-    const char *file;
-    s32 line;
+    Source_Code_Location source_code_location;
 
     // how many times this message was sent.
     // TODO better name.
@@ -44,14 +43,14 @@ typedef struct {
 
 
 #define log(message, ...)           \
-    log_impl(LOG_LEVEL_NORMAL, temp_sprintf(message, ##__VA_ARGS__), __FILE__, __LINE__)
+    log_impl(LOG_LEVEL_NORMAL, temp_sprintf(message, ##__VA_ARGS__), Get_Source_Code_Location())
 
 
 #define log_error(message, ...)     \
-    log_impl(LOG_LEVEL_ERROR, temp_sprintf(message, ##__VA_ARGS__), __FILE__, __LINE__)
+    log_impl(LOG_LEVEL_ERROR, temp_sprintf(message, ##__VA_ARGS__), Get_Source_Code_Location())
 
 
-internal void log_impl(Log_Level level, const char *message, const char *file, s32 line);
+internal void log_impl(Log_Level level, const char *message, Source_Code_Location source_code_location);
 
 
 
@@ -81,7 +80,7 @@ internal const char *temp_format_message(Logged_Message log) {
     case LOG_LEVEL_NORMAL:
         return temp_sprintf("SUDOKU LOG: %s%s", log.message_c_str, duplicate_message_string);
     case LOG_LEVEL_ERROR:
-        return temp_sprintf("%s:%d: ERROR: %s%s", log.file, log.line, log.message_c_str, duplicate_message_string);
+        return temp_sprintf(SCL_Fmt" ERROR: %s%s", SCL_Arg(log.source_code_location), log.message_c_str, duplicate_message_string);
     }
 }
 
@@ -106,7 +105,7 @@ internal void print_logged_message(Logged_Message log) {
 
 
 
-void log_impl(Log_Level level, const char *_message, const char *file, s32 line) {
+void log_impl(Log_Level level, const char *_message, Source_Code_Location source_code_location) {
     Context *context = get_context();
 
     String message = S(_message);
@@ -118,10 +117,9 @@ void log_impl(Log_Level level, const char *_message, const char *file, s32 line)
     for (u64 i = 0; i < context->logged_messages_to_display.count; i++) {
         Logged_Message *this_log = &context->logged_messages_to_display.items[i];
 
+        if (!source_code_location_eq(source_code_location, this_log->source_code_location)) continue;
+
         if (level != this_log->level) continue;
-        if (line  != this_log->line ) continue;
-        // this works, the pointers for these should be the same.
-        if (file  != this_log->file ) continue;
 
         // if the message 
         if (!String_Eq(message, this_log->message)) continue;
@@ -144,8 +142,8 @@ void log_impl(Log_Level level, const char *_message, const char *file, s32 line)
     log.level         = level;
     log.message       = String_Duplicate(log.allocator, message, .null_terminate = true);
     log.message_c_str = log.message.data;
-    log.file          = file;
-    log.line          = line;
+
+    log.source_code_location = source_code_location;
 
     log.message_duplicate_count = 1;
 
