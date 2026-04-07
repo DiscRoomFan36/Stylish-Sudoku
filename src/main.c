@@ -884,6 +884,8 @@ void do_one_frame() {
         //
         // but have them in a drop down area
 
+        // TODO have undo / redo here.
+
         if (ui_button("Toggle Build / Solve Mode", &layout_button_area)) {
             context->in_solve_mode = !context->in_solve_mode;
         }

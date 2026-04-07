@@ -43,6 +43,13 @@ typedef struct {
         bool shift_or_control_down;
         bool any_direction_pressed;
 
+
+        struct {
+            // GetKeyPressed() has a buffer size of 16, lets give a
+            // bit more room for future protection.
+            KeyboardKey buffer[32];
+            u64 count;
+        } keys_pressed;
     } keyboard;
 
 } Input;
@@ -108,21 +115,38 @@ void update_input(void) {
         input->mouse.left.last_click_location = input->mouse.pos;
     }
 
-    input->keyboard.shift_down                 = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
-    input->keyboard.control_down               = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-    input->keyboard.delete_pressed             = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
+    { // keyboard
+        input->keyboard.shift_down                 = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
+        input->keyboard.control_down               = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+        input->keyboard.delete_pressed             = IsKeyPressed(KEY_DELETE)    || IsKeyPressed(KEY_BACKSPACE);
 
-    input->keyboard.direction.up_pressed       = IsKeyPressed(KEY_UP)        || IsKeyPressed(KEY_W);
-    input->keyboard.direction.down_pressed     = IsKeyPressed(KEY_DOWN)      || IsKeyPressed(KEY_S);
-    input->keyboard.direction.left_pressed     = IsKeyPressed(KEY_LEFT)      || IsKeyPressed(KEY_A);
-    input->keyboard.direction.right_pressed    = IsKeyPressed(KEY_RIGHT)     || IsKeyPressed(KEY_D);
+        input->keyboard.direction.up_pressed       = IsKeyPressed(KEY_UP)        || IsKeyPressed(KEY_W);
+        input->keyboard.direction.down_pressed     = IsKeyPressed(KEY_DOWN)      || IsKeyPressed(KEY_S);
+        input->keyboard.direction.left_pressed     = IsKeyPressed(KEY_LEFT)      || IsKeyPressed(KEY_A);
+        input->keyboard.direction.right_pressed    = IsKeyPressed(KEY_RIGHT)     || IsKeyPressed(KEY_D);
 
-    input->keyboard.key.z_pressed              = IsKeyPressed(KEY_Z);
-    input->keyboard.key.x_pressed              = IsKeyPressed(KEY_X);
+        input->keyboard.key.z_pressed              = IsKeyPressed(KEY_Z);
+        input->keyboard.key.x_pressed              = IsKeyPressed(KEY_X);
 
 
-    input->keyboard.shift_or_control_down      = input->keyboard.shift_down || input->keyboard.control_down;
-    input->keyboard.any_direction_pressed      = input->keyboard.direction.up_pressed || input->keyboard.direction.down_pressed || input->keyboard.direction.left_pressed || input->keyboard.direction.right_pressed;
+        input->keyboard.shift_or_control_down      = input->keyboard.shift_down || input->keyboard.control_down;
+        input->keyboard.any_direction_pressed      = input->keyboard.direction.up_pressed || input->keyboard.direction.down_pressed || input->keyboard.direction.left_pressed || input->keyboard.direction.right_pressed;
+
+        { // keys_pressed
+
+            // zero these, dont need to zero the buffer, im just paranoid.
+            Mem_Zero(input->keyboard.keys_pressed.buffer, sizeof(input->keyboard.keys_pressed.buffer));
+            input->keyboard.keys_pressed.count = 0;
+
+            for (size_t i = 0; i < Array_Len(input->keyboard.keys_pressed.buffer); i++) {
+                int key = GetKeyPressed();
+                if (key == 0) break;
+
+                input->keyboard.keys_pressed.buffer[input->keyboard.keys_pressed.count] = key;
+                input->keyboard.keys_pressed.count += 1;
+            }
+        }
+    }
 }
 
 

@@ -160,6 +160,13 @@ bool Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(Sudoku *sudo
 internal void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height);
 
 
+// TODO TODO TODO
+// TODO TODO TODO
+// undo and redo effect the selection.
+// need to figure out the right move to make here.
+// TODO TODO TODO
+// TODO TODO TODO
+
 // returns if the action took place
 internal bool undo_sudoku(Sudoku *sudoku);
 internal bool redo_sudoku(Sudoku *sudoku);
@@ -171,6 +178,7 @@ internal bool redo_sudoku(Sudoku *sudoku);
 internal bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku);
 
 
+internal void sudoku_maybe_handle_key_press(Sudoku *sudoku, KeyboardKey key);
 
 
 
@@ -331,6 +339,166 @@ bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku) {
 }
 
 
+void sudoku_maybe_handle_key_press(Sudoku *sudoku, KeyboardKey key) {
+    ASSERT(key != 0);
+
+    // for in_solve_mode, TODO remove.
+    Context *context = get_context();
+    Input   *input   = get_input();
+
+    s8 number_key = -1;
+    {
+        const u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
+        for (u32 i = 0; i < Array_Len(number_keys); i++) {
+            if (key == number_keys[i])   number_key = i;
+        }
+    }
+
+
+    if (number_key != -1) {
+        // TODO the user might want to press shift down on some digits and not
+        // others, this only checks if it is down at all...
+        //
+        // could probably do some static trick...
+        Sudoku_UI_Layer layer_to_place;
+        if      (input->keyboard.shift_down && input->keyboard.control_down) layer_to_place = SUL_COLOR;
+        else if (input->keyboard.shift_down)                                 layer_to_place = SUL_UNCERTAIN;
+        else if (input->keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
+        else                                                                 layer_to_place = SUL_DIGIT;
+
+        // make sure that all boxes get the same result after pressing a key (all add or all remove)
+        bool remove_number_this_press = true;
+
+
+        ////////////////////////////////////////////////
+        //              Placing Digits
+        ////////////////////////////////////////////////
+        // pre pass, to figure out what to do.
+        FOREACH_IJ_OF_SUDOKU(i, j) {
+            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
+            if (!cell->is_selected) continue;
+
+
+            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
+            bool has_builder_digit  = has_digit && !(cell->digit_placed_in_solve_mode);
+            // TODO accept in_solve_mode as an argument, solve / build / view mode.
+            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
+
+            switch (layer_to_place) {
+                case SUL_DIGIT: {
+                    if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (cell->digit == number_key);
+                } break;
+                case SUL_CERTAIN: {
+                    // TODO use DIGIT_BIT macro?
+                    if (!has_digit) remove_number_this_press = remove_number_this_press && (cell->  certain & (1 << (number_key)));
+                } break;
+                case SUL_UNCERTAIN: {
+                    if (!has_digit) remove_number_this_press = remove_number_this_press && (cell->uncertain & (1 << (number_key)));
+                } break;
+                case SUL_COLOR: {
+                    remove_number_this_press = remove_number_this_press && (cell->color_bitfield & (1 << (number_key)));
+                } break;
+            }
+        }
+
+        // post pass, to actually do something based on remove_number_this_press.
+        FOREACH_IJ_OF_SUDOKU(i, j) {
+            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
+            if (!cell->is_selected) continue;
+
+
+            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
+            bool has_builder_digit  = has_digit && !cell->digit_placed_in_solve_mode;
+            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
+
+            switch (layer_to_place) {
+            case SUL_DIGIT: {
+                if (slot_is_modifiable) {
+                    if (remove_number_this_press) {
+                        Place_Digit(&sudoku->grid, i, j, NO_DIGIT_PLACED);
+                    } else {
+                        Place_Digit(&sudoku->grid, i, j, number_key, .in_solve_mode = context->in_solve_mode);
+                    }
+                }
+            } break;
+
+            case SUL_CERTAIN: {
+                if (!has_digit) {
+                    if (remove_number_this_press)   cell->  certain &= ~(1 << number_key);
+                    else                            cell->  certain |=  (1 << number_key);
+                }
+            } break;
+
+            case SUL_UNCERTAIN: {
+                if (!has_digit) {
+                    if (remove_number_this_press)   cell->uncertain &= ~(1 << number_key);
+                    else                            cell->uncertain |=  (1 << number_key);
+                }
+            } break;
+
+            case SUL_COLOR: {
+                if (remove_number_this_press)       cell->color_bitfield &= ~(1 << number_key);
+                else                                cell->color_bitfield |=  (1 << number_key);
+            } break;
+            }
+        }
+    }
+
+
+    bool is_delete_key = (key == KEY_DELETE) || (key == KEY_BACKSPACE);
+    if (is_delete_key) {
+        ////////////////////////////////////////////////
+        //             Removeing Digits
+        ////////////////////////////////////////////////
+
+        Sudoku_UI_Layer layer_to_delete = SUL_COLOR; // lowest priority
+
+        // pre pass, to figure out what to remove
+        FOREACH_IJ_OF_SUDOKU(i, j) {
+            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
+            if (!cell->is_selected) continue;
+
+            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
+            bool has_builder_digit  = has_digit && !cell->digit_placed_in_solve_mode;
+            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
+
+            // TODO maybe if you have cntl press or something it dose something different?
+
+            if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
+            if (cell->  certain)                    layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
+            if (cell->uncertain)                    layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
+            if (cell->color_bitfield)               layer_to_delete = Min(layer_to_delete, SUL_COLOR);
+        }
+
+        // actually remove the layer we decided upon,
+        FOREACH_IJ_OF_SUDOKU(i, j) {
+            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
+            if (!cell->is_selected) continue;
+
+            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
+            bool has_builder_digit  = has_digit && !(cell->digit_placed_in_solve_mode);
+            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
+
+            switch (layer_to_delete) {
+            case SUL_DIGIT: {
+                if (slot_is_modifiable) {
+                    Place_Digit(&sudoku->grid, i, j, NO_DIGIT_PLACED);
+                }
+            } break;
+            case SUL_CERTAIN:   { cell->  certain      = 0; } break;
+            case SUL_UNCERTAIN: { cell->uncertain      = 0; } break;
+            case SUL_COLOR:     { cell->color_bitfield = 0; } break;
+            }
+        }
+    }
+
+
+    if ((number_key != -1) || is_delete_key) {
+        // Add to undo buffer if something just changed
+        sudoku_maybe_add_grid_into_undo_buffer(sudoku);
+    }
+}
+
 
 
 
@@ -462,35 +630,6 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
         }
     }
-
-
-    ////////////////////////////////
-    //       placing digits
-    ////////////////////////////////
-    Sudoku_UI_Layer layer_to_place;
-    if      (input->keyboard.shift_down && input->keyboard.control_down) layer_to_place = SUL_COLOR;
-    else if (input->keyboard.shift_down)                                 layer_to_place = SUL_UNCERTAIN;
-    else if (input->keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
-    else                                                                 layer_to_place = SUL_DIGIT;
-
-    // determines whether a number was pressed to put it into the grid.
-    s8 number_pressed = NO_DIGIT_PLACED;
-    {
-        u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
-        for (u32 i = 0; i < Array_Len(number_keys); i++) {
-            if (IsKeyPressed(number_keys[i]))   number_pressed = i;
-        }
-    }
-
-
-    ////////////////////////////////
-    //       removing digits
-    ////////////////////////////////
-    // make sure that all boxes get the same result after pressing a key (all add or all remove)
-    bool remove_number_this_press = true;
-
-    Sudoku_UI_Layer layer_to_delete = SUL_COLOR; // lowest priority
-
 
 
     ////////////////////////////////
@@ -645,132 +784,11 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     }
 
 
-
-    ////////////////////////////////////////////////
-    //              Placing Digits
-    ////////////////////////////////////////////////
-    if (number_pressed != NO_DIGIT_PLACED) {
-        // pre pass, to figure out what to do.
-        FOREACH_IJ_OF_SUDOKU(i, j) {
-            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
-            if (!cell->is_selected) continue;
-
-
-            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
-            bool has_builder_digit  = has_digit && !(cell->digit_placed_in_solve_mode);
-            // TODO accept in_solve_mode as an argument, solve / build / view mode.
-            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
-
-            switch (layer_to_place) {
-                case SUL_DIGIT: {
-                    if (slot_is_modifiable) remove_number_this_press = remove_number_this_press && (cell->digit == number_pressed);
-                } break;
-                case SUL_CERTAIN: {
-                    // TODO use DIGIT_BIT macro?
-                    if (!has_digit) remove_number_this_press = remove_number_this_press && (cell->  certain & (1 << (number_pressed)));
-                } break;
-                case SUL_UNCERTAIN: {
-                    if (!has_digit) remove_number_this_press = remove_number_this_press && (cell->uncertain & (1 << (number_pressed)));
-                } break;
-                case SUL_COLOR: {
-                    remove_number_this_press = remove_number_this_press && (cell->color_bitfield & (1 << (number_pressed)));
-                } break;
-            }
-        }
-
-        // post pass, to actually do something based on remove_number_this_press.
-        FOREACH_IJ_OF_SUDOKU(i, j) {
-            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
-            if (!cell->is_selected) continue;
-
-
-            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
-            bool has_builder_digit  = has_digit && !cell->digit_placed_in_solve_mode;
-            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
-
-            switch (layer_to_place) {
-            case SUL_DIGIT: {
-                if (slot_is_modifiable) {
-                    if (remove_number_this_press) {
-                        Place_Digit(&sudoku->grid, i, j, NO_DIGIT_PLACED);
-                    } else {
-                        Place_Digit(&sudoku->grid, i, j, number_pressed, .in_solve_mode = context->in_solve_mode);
-                    }
-                }
-            } break;
-
-            case SUL_CERTAIN: {
-                if (!has_digit) {
-                    if (remove_number_this_press)   cell->  certain &= ~(1 << number_pressed);
-                    else                            cell->  certain |=  (1 << number_pressed);
-                }
-            } break;
-
-            case SUL_UNCERTAIN: {
-                if (!has_digit) {
-                    if (remove_number_this_press)   cell->uncertain &= ~(1 << number_pressed);
-                    else                            cell->uncertain |=  (1 << number_pressed);
-                }
-            } break;
-
-            case SUL_COLOR: {
-                if (remove_number_this_press)       cell->color_bitfield &= ~(1 << number_pressed);
-                else                                cell->color_bitfield |=  (1 << number_pressed);
-            } break;
-            }
-        }
+    // handle key presses
+   for (size_t i = 0; i < input->keyboard.keys_pressed.count; i++) {
+        KeyboardKey key = input->keyboard.keys_pressed.buffer[i];
+        sudoku_maybe_handle_key_press(sudoku, key);
     }
-
-
-    ////////////////////////////////////////////////
-    //             Removeing Digits
-    ////////////////////////////////////////////////
-    if (input->keyboard.delete_pressed) {
-        // pre pass, to figure out what to remove
-        FOREACH_IJ_OF_SUDOKU(i, j) {
-            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
-            if (!cell->is_selected) continue;
-
-            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
-            bool has_builder_digit  = has_digit && !cell->digit_placed_in_solve_mode;
-            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
-
-            // TODO maybe if you have cntl press or something it dose something different?
-
-            if (has_digit && slot_is_modifiable)    layer_to_delete = Min(layer_to_delete, SUL_DIGIT);
-            if (cell->  certain)            layer_to_delete = Min(layer_to_delete, SUL_CERTAIN);
-            if (cell->uncertain)            layer_to_delete = Min(layer_to_delete, SUL_UNCERTAIN);
-            if (cell->color_bitfield)       layer_to_delete = Min(layer_to_delete, SUL_COLOR);
-        }
-
-        // actually remove the layer we decided upon,
-        FOREACH_IJ_OF_SUDOKU(i, j) {
-            Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
-            if (!cell->is_selected) continue;
-
-            bool has_digit          = (cell->digit != NO_DIGIT_PLACED);
-            bool has_builder_digit  = has_digit && !(cell->digit_placed_in_solve_mode);
-            bool slot_is_modifiable = (context->in_solve_mode && !has_builder_digit) || !context->in_solve_mode;
-
-            switch (layer_to_delete) {
-            case SUL_DIGIT: {
-                if (slot_is_modifiable) {
-                    Place_Digit(&sudoku->grid, i, j, NO_DIGIT_PLACED);
-                }
-            } break;
-            case SUL_CERTAIN:   { cell->  certain      = 0; } break;
-            case SUL_UNCERTAIN: { cell->uncertain      = 0; } break;
-            case SUL_COLOR:     { cell->color_bitfield = 0; } break;
-            }
-        }
-    }
-
-
-    ////////////////////////////////////////////////
-    // Add to undo buffer if something just changed
-    ////////////////////////////////////////////////
-    sudoku_maybe_add_grid_into_undo_buffer(sudoku);
-
 
     ////////////////////////////////////////////////
     //        Sudoku Logic - for highlighting
@@ -2342,6 +2360,8 @@ internal bool save_sudoku(const char *filename, Sudoku *to_save) {
     u64 size_of_file = String_Builder_Count(&sb);
     if (size_of_file > MAX_TEMP_FILE_SIZE) {
         log_error("file is to big to fit into temporary buffer, is %.2fMB (%lu)", (f64)size_of_file / (f64)MEGABYTE, size_of_file);
+        // better than having a bricked save file?
+        return false;
     }
 
 
