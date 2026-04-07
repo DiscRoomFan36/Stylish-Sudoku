@@ -199,7 +199,7 @@ void init_context(void) {
         context->debug.draw_cursor_position      = false;
         context->debug.draw_color_points         = false;
         context->debug.draw_fps                  = false;
-        context->debug.draw_layout_areas         = true;
+        context->debug.draw_layout_areas         = false;
 
         // the perhaps better option would be to make DebugDraw## versions of the draw
         // functions that buffer the commands until later, but that would require
@@ -289,6 +289,11 @@ const char *autosave_path = "./build/autosave.sudoku";
 void do_one_frame(void);
 
 int main(void) {
+    // spice up your life.
+    //
+    // TODO make a better random generator
+    srand(time(NULL));
+
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);  // the context contains the window width/height, and stuff updates dynamically.
     SetTraceLogLevel(LOG_WARNING);          // only show warning or worse logs, the console is being spammed in LOG_INFO mode.
     InitWindow(INITAL_WINDOW_WIDTH, INITAL_WINDOW_HEIGHT, "Sudoku");
@@ -376,6 +381,34 @@ Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid) {
 
     return input_sudoku_puzzle;
 }
+
+// keeps is_selected and is_hovered, but thats it.
+void place_digit_grid_into_sudoku_grid(Sudoku_Digit_Grid digit_grid, Sudoku_Grid *grid, bool keep_markings) {
+    FOREACH_IJ_OF_SUDOKU(i, j) {
+        Sudoku_Cell *cell = get_cell(grid, i, j);
+
+        { // clear the cell. dont like whats going on here.
+            // this always must be cleared
+            Place_Digit(grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
+
+            if (!keep_markings) {
+                cell->color_bitfield = 0;
+                cell->certain = 0;
+                cell->uncertain = 0;
+                cell->digit_placed_in_solve_mode = false;
+            }
+        }
+
+        u8 digit = digit_grid.digits[j][i];
+
+        if (digit == 0) {
+            log_error("digit is equal to zero, what should we do here?");
+        } else {
+            Place_Digit(grid, i, j, digit, .dont_play_sound = true);
+        }
+    }
+}
+
 
 
 typedef enum {
@@ -638,6 +671,17 @@ internal bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_L
     bool button_is_hovered = CheckCollisionPointRec(input->mouse.pos, button_bounds);
     bool button_is_clicked = button_is_hovered && input->mouse.left.clicked;
 
+    if (button_is_clicked) {
+        // TODO do we want buttons to capture this?
+        //
+        // if this button is before the sudoku in processing order, the selection will not go away when this is clicked.
+        //
+        // input->mouse.left.clicked = false;
+        //
+        // maybe we want a function?
+        // capture_click(MOUSE_LEFT);
+    }
+
     { // move the current theme towards the new theme if they are different.
         Button_Ui_Theme *button_theme = &theme->ui.button.base;
         if (button_is_hovered) button_theme = &theme->ui.button.hovered;
@@ -848,8 +892,10 @@ void do_one_frame() {
         if (ui_button("Generate Random Sudoku", &layout_button_area)) {
             Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
 
-            log_error("TODO: load random grid into sudoku");
-            (void) random_sudoku;
+            place_digit_grid_into_sudoku_grid(random_sudoku, &context->sudoku->grid, false);
+
+            bool changed = sudoku_maybe_add_grid_into_undo_buffer(context->sudoku);
+            if (!changed)   log_error("randomly generated sudoku was the same as the current grid?");
         }
 
         // button to solve sudoku
@@ -861,6 +907,11 @@ void do_one_frame() {
 
             if (sudoku_solver_result.sudoku_is_possible) {
                 log("Sudoku is possible.");
+
+                place_digit_grid_into_sudoku_grid(sudoku_solver_result.correct_grid, &context->sudoku->grid, true);
+
+                bool changed = sudoku_maybe_add_grid_into_undo_buffer(context->sudoku);
+                if (!changed)   log_error("solve sudoku didn't do anything?");
 
             } else {
                 // TODO do more.

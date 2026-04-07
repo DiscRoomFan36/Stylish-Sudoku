@@ -153,8 +153,22 @@ internal void _Place_Digit(Sudoku_Grid *grid, s8 i, s8 j, s8 digit_to_place, Pla
 bool Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(Sudoku *sudoku);
 
 
+// the big one, dose probably to much stuff.
+//
+// still uses the context for some stuff,
+// like in_solve_mode, TODO remove that.
 internal void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height);
 
+
+// returns if the action took place
+internal bool undo_sudoku(Sudoku *sudoku);
+internal bool redo_sudoku(Sudoku *sudoku);
+
+// checks if the grid is the same as the last element
+// in the undo buffer, and adds it if it is not.
+//
+// returns if the grid was added.
+internal bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku);
 
 
 
@@ -253,8 +267,16 @@ void _Place_Digit(Sudoku_Grid *grid, s8 i, s8 j, s8 digit_to_place, Place_Digit_
 
 
 bool Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(Sudoku *sudoku) {
+    ASSERT(sudoku);
+    ASSERT(sudoku->undo_buffer.count > 0);
+
     // could easily be Grid_Cmp or something.
     Sudoku_Grid * this_grid = &sudoku->grid;
+
+    // make sure the sudoku still has this field,
+    // in case i end up switching this for undo_index or something.
+    (void) sudoku->redo_count;
+
     Sudoku_Grid *other_grid = &sudoku->undo_buffer.items[sudoku->undo_buffer.count-1];
 
     FOREACH_IJ_OF_SUDOKU(i, j) {
@@ -269,6 +291,45 @@ bool Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(Sudoku *sudo
     }
     return true;
 }
+
+
+
+bool undo_sudoku(Sudoku *sudoku) {
+    play_sound("sudoku_undo");
+    if (sudoku->undo_buffer.count > 1) {
+        sudoku->undo_buffer.count   -= 1;
+        sudoku->redo_count          += 1;
+        sudoku->grid = sudoku->undo_buffer.items[sudoku->undo_buffer.count - 1];
+        return true;
+    }
+
+    log("no sudoku to undo!");
+    return false;
+}
+bool redo_sudoku(Sudoku *sudoku) {
+    play_sound("sudoku_redo");
+    if (sudoku->redo_count > 0) {
+        sudoku->undo_buffer.count   += 1;
+        sudoku->redo_count          -= 1;
+        sudoku->grid = sudoku->undo_buffer.items[sudoku->undo_buffer.count - 1];
+        return true;
+    }
+
+    log("no sudoku to redo!");
+    return false;
+}
+
+bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku) {
+    bool same = Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku);
+    if (same) return false;
+
+    // should i clean up this grid or something?
+    Array_Append(&sudoku->undo_buffer, sudoku->grid);
+    sudoku->redo_count = 0;
+
+    return true;
+}
+
 
 
 
@@ -437,22 +498,12 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     ////////////////////////////////
 
     if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
-        play_sound("undo_undo");
-        if (sudoku->undo_buffer.count > 1) {
-            sudoku->undo_buffer.count   -= 1;
-            sudoku->redo_count          += 1;
-            sudoku->grid = sudoku->undo_buffer.items[sudoku->undo_buffer.count - 1];
-        }
+        undo_sudoku(sudoku);
     }
 
     // TODO cntl-x should be cut, but we dont have that yet.
     if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
-        play_sound("undo_redo");
-        if (sudoku->redo_count > 0) {
-            sudoku->undo_buffer.count   += 1;
-            sudoku->redo_count          -= 1;
-            sudoku->grid = sudoku->undo_buffer.items[sudoku->undo_buffer.count - 1];
-        }
+        redo_sudoku(sudoku);
     }
 
 
@@ -718,10 +769,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     ////////////////////////////////////////////////
     // Add to undo buffer if something just changed
     ////////////////////////////////////////////////
-    if (!Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(sudoku)) {
-        Array_Append(&sudoku->undo_buffer, sudoku->grid);
-        sudoku->redo_count = 0;
-    }
+    sudoku_maybe_add_grid_into_undo_buffer(sudoku);
 
 
     ////////////////////////////////////////////////
