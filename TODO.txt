@@ -1,25 +1,34 @@
 
 
-
-
 USEABILITY:
     - make the web version useable, make the webpage show up on github
     - make a README.md, add screenshots.
 
-    - some way to load different sudoku's (maybe store them in a folder and have a file brower)
+    - some way to load different sudoku's (maybe store them in a folder and have a file browser)
 
-    - add other formes of marking. like renban line (aka just lines.)
+    - add other forms of marking. like Renban line (aka just lines.)
 
-    - add a pallet of things you can do (like sudokupad, that allowes better picking of colors)
+    - add a pallet of things you can do (like sudokupad, that allows better picking of colors)
 
     - there are still (still) some animations that are not done and have a placeholder... (the fade out's, but thats beyond the scope, i feel like it would be 100x harder to get all of them without a general algorithm.)
 
+    - sudoku should have more state, that are passed into handle_and_draw_sudoku(), (aka: build, solve, view)
+
+    - an overlay for the 'solved' state of the sudoku, auto updates when placing digits.
+    - a way to see the path the solver took.
+
+
+UI:
+    - make a better ui
+    - undo / redo buttons
+    - all debug options should be checkbox's
+    - save / load buttons
 
 
 SOUND:
-    - sound for placeing digit
+    - sound for placing digit
     - sound for marking
-    - sound for deleation
+    - sound for deletion
     - sound for undo/redo
 
     - sound for selection?
@@ -27,8 +36,8 @@ SOUND:
 
 
 SOLVER:
-    - start the solver
-
+    - keep track of solving process, so i can turn it into a cool animation.
+    - add more deductions, (but the solver is already fast enough to do anything I would ever want...)
 
 
 
@@ -36,5 +45,6 @@ SOLVER:
 DONE:
     - change the colors of digits if it breaks the rules of sudoku.
     - pick better colors for everything
-    - there are still some animations that are not done and have a placeholder... (but its fine for now, would have to try much harder to get all the edge cases, i feel like theres some grafics programmer out there laughing at my code. I will find you.)
+    - there are still some animations that are not done and have a placeholder... (but its fine for now, would have to try much harder to get all the edge cases, i feel like theres some graphics programmer out there laughing at my code. I will find you.)
     - animate the selection process.
+    - start the sudoku solver
