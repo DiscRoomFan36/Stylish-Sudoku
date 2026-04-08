@@ -733,7 +733,6 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                 // this code is becoming dangerous.
                 when_dragging_to_set_selected_to = true;
 
-
                 Sudoku_Cell *cell = get_cell(&sudoku->grid, click_i, click_j);
 
                 if (cell->digit != NO_DIGIT_PLACED) {
@@ -746,12 +745,19 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                     }
 
                 } else {
+                    // i found this behavior annoying, when this system is more robust,
+                    // aka checks the markings of the cell and smartly gets similar cells.
+                    //
+                    // TODO implement this feature
+
+                    /*
                     // select every empty cell
                     // TODO be smarter and think about the marking and colors for this
                     FOREACH_IJ_OF_SUDOKU(i, j) {
                         Sudoku_Cell *this_cell = get_cell(&sudoku->grid, i, j);
                         if (this_cell->digit == NO_DIGIT_PLACED)   this_cell->is_selected = true;
                     }
+                    */
                 }
             }
         }

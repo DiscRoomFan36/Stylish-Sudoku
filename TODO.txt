@@ -17,6 +17,7 @@ USEABILITY:
     - an overlay for the 'solved' state of the sudoku, auto updates when placing digits.
     - a way to see the path the solver took.
 
+    - double clicking on a cell that doesn't have a digit in it should smartly select cells that have similar markings.
 
 UI:
     - make a better ui
@@ -24,6 +25,7 @@ UI:
     - all debug options should be checkbox's
     - save / load buttons
 
+    - a better way to select colors.
 
 SOUND:
     - sound for placing digit

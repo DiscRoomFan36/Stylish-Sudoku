@@ -20,6 +20,8 @@ typedef struct {
             Vector2 last_click_location;
             bool double_clicked;
         } left;
+
+        // TODO use IsCursorInWindow()
     } mouse;
 
 
