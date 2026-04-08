@@ -47,6 +47,10 @@ typedef struct {
         struct {
             // GetKeyPressed() has a buffer size of 16, lets give a
             // bit more room for future protection.
+            //
+            // TODO make this a thing that also keeps track of the
+            // shift_down and cntl_down, make the application handle
+            // each key event.
             KeyboardKey buffer[32];
             u64 count;
         } keys_pressed;
