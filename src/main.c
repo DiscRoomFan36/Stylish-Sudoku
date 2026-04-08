@@ -120,7 +120,7 @@ typedef struct {
     // all the memory in this program comes from here.
     Arena_Pool pool;
     // resets every frame.
-    Arena *scratch;
+    Arena *temporary_allocator;
 
     s32 window_width;
     s32 window_height;
@@ -155,6 +155,9 @@ internal void uninit_context(void);
 // the context from in each function.
 //
 internal Context *get_context(void) { return &__context_base; }
+
+// returns an allocator that gets free'd every frame
+internal Arena *get_temporary_allocator(void) { return get_context()->temporary_allocator; }
 
 // so we can separate calls to context for context reasons, and for debugging reasons.
 internal Debug_Struct *get_debug_struct() { return &get_context()->debug_struct; }
@@ -194,7 +197,7 @@ void init_context(void) {
             Arena_Add_Buffer_As_Storeage_Space(&context->pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
         }
 
-        context->scratch = Pool_Get(&context->pool);
+        context->temporary_allocator = Pool_Get(&context->pool);
     }
 
     context->window_width  = GetScreenWidth();
@@ -772,7 +775,8 @@ void do_one_frame() {
     // make sure the sudoku grid did not change between frames.
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
 
-    Arena_Clear(context->scratch);
+    // lol, i just find this line funny.
+    Arena_Clear(get_temporary_allocator());
 
     BeginDrawing();
     ClearBackground(theme->background_color);

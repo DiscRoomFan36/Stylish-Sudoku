@@ -158,17 +158,15 @@ void log_impl(Log_Level level, const char *_message, Source_Code_Location source
 
 
 
-// uses scratch arena to allocate temp array.
+// uses temporary allocator
 //
 // no strings are harmed, or null terminated,
 // so do not put the result into strlen(),
 // it will measure the whole of the array.
 internal String_Array string_split_by(String input, const char *split_by) {
-    Context *context = get_context();
-
     String needle = S(split_by);
 
-    String_Array result = { .allocator = context->scratch };
+    String_Array result = { .allocator = get_temporary_allocator() };
 
     while (true) {
         s64 index = String_Find_Index_Of(input, needle);
@@ -212,9 +210,7 @@ typedef struct {
     _wrap_text_with_font_and_size(text, font_and_size, max_width, (wrap_text_with_font_and_size_Opt){ __VA_ARGS__ })
 
 internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size font_and_size, s32 max_width, wrap_text_with_font_and_size_Opt opt) {
-    Context *context = get_context();
-
-    String_Array result = { .allocator = context->scratch };
+    String_Array result = { .allocator = get_temporary_allocator() };
 
 
     // we'll do something special with these later.

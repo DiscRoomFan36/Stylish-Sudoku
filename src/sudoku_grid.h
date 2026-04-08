@@ -582,7 +582,7 @@ internal void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary draw_bo
 // (x, y, wight, heigh) -> in pixels
 //
 void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height) {
-    Context *context = get_context();
+    // Context      *context = get_context();
     Theme        *theme        = get_theme();
     Input        *input        = get_input();
     Debug_Struct *debug_struct = get_debug_struct();
@@ -802,7 +802,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
             Mem_Zero(invalid_digits_array, sizeof(*invalid_digits_array));
             // use the scratch allocator.
-            invalid_digits_array->allocator = context->scratch;
+            invalid_digits_array->allocator = get_temporary_allocator();
 
 
             // TODO compress these searches.
@@ -875,7 +875,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
         { // draw color shading / cell background
             Int_Array color_bits = ZEROED;
-            color_bits.allocator = context->scratch;
+            color_bits.allocator = get_temporary_allocator();
 
             #define MAX_BITS_SET    (sizeof(cell->color_bitfield)*8)
             static_assert(Array_Len(theme->sudoku.cell_color_bitfield) == MAX_BITS_SET, "no more than 32 colors please.");
@@ -1048,8 +1048,8 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             DrawTextCentered(GetFontWithSize(draw_bounds.cell_size * theme->sudoku.text.digit_size_factor), text, text_position, text_color);
         } else {
             // draw uncertain and certain digits
-            Int_Array uncertain_numbers = { .allocator = context->scratch };
-            Int_Array certain_numbers   = { .allocator = context->scratch };
+            Int_Array uncertain_numbers = { .allocator = get_temporary_allocator() };
+            Int_Array certain_numbers   = { .allocator = get_temporary_allocator() };
 
             for (u8 k = 0; k <= 9; k++) {
                 if (cell->uncertain & (1 << k)) Array_Append(&uncertain_numbers, k);
