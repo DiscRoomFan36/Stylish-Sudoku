@@ -334,9 +334,19 @@ int main(void) {
 
 #ifdef PLATFORM_WEB
 
-    emscripten_set_main_loop(do_one_frame, 0, 1);
-    #error "do we exit now? or dose this function call kidnap the control flow?"
-    return 0;
+    //
+    // function arguments:
+    //   1. the function to call in a loop.
+    //   2. requested fps, 0 == use javascripts RequestAnimationFrame() function. (its a good function)
+    //   3. simulate infinite loop, set to try will make it so the function never returns.
+    //
+    // I dont have a way to clean anything up after this, but its probably fine.
+    //
+    // will have to get create when trying to autosave in web version.
+    //
+    emscripten_set_main_loop(do_one_frame, 0, true);
+
+    UNREACHABLE();
 
 #else
 
