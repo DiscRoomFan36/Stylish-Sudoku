@@ -3,7 +3,7 @@
 
 A simple stylish sudoku player.
 
-*TODO: a small gif of the player, placing some digits, making big selections, and using the double click feature.*
+![Stylish Sudoku Player Still Image](./readme_assets/nice_display_image.png)
 
 
 ## Quick Start
@@ -13,7 +13,7 @@ A simple stylish sudoku player.
 $ cc -o nob nob.c
 
 # compile and run
-$ ./nob && ./build/main_debug
+$ ./nob debug && ./build/main_debug
 ```
 
 ## Featuring...
@@ -26,7 +26,22 @@ $ ./nob && ./build/main_debug
 
 This helpfully shows when you incorrectly placed a digit
 
-*TODO gif of this happening*
+![Invalid Digit Showcase](readme_assets/invalid_digit_showcase.gif)
+
+
+#### Including A Sudoku Solver
+
+It really works! It can also tell when a sudoku is not unique!
+
+I'll add more features to this later, as well as a better visualization.
+
+
+### Randomly Generated Sudoku's!
+
+I mean... they're probably not that fun to solve... but they are valid unique sudoku. That probably counts for something...
+
+![Random Sudoku Generation](readme_assets/random_sudoku_geneation.gif)
+
 
 ### Auto Saves && Undo/Redo
 
