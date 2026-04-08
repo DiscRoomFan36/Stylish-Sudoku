@@ -45,9 +45,16 @@ static Cmd cmd = {0};
 void print_usage(const char *program_name, bool to_stderr) {
     FILE *out = to_stderr ? stderr : stdout;
 
+    int text_padding = 10;
+
+    #define X(name, description)  { int name_length = strlen(#name); if (name_length > text_padding) { text_padding = name_length; } }
+        ARGUMENTS
+    #undef X
+
+
     fprintf(out, "USAGE %s: [...ARGUMENTS]\n", program_name);
     fprintf(out, "[ARGUMENTS]:\n");
-    #define X(name, description)    fprintf(out, "%11s: %s\n", #name, description);
+    #define X(name, description)    fprintf(out, "    %*s: %s\n", text_padding, #name, description);
         ARGUMENTS
     #undef X
 }
