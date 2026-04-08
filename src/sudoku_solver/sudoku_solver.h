@@ -103,16 +103,16 @@ Sudoku_Digit_Grid Generate_Random_Sudoku(u32 num_digits_in_puzzle);
 //                              Internal Structures
 ///////////////////////////////////////////////////////////////////////////////////////
 
-typedef struct Cell {
+typedef struct Sudoku_Solver_Cell {
     // 0 means no digit placed.
     u8 placed_digit;
     // this is a bitfield.
     // all possible digits are [1 -> 9]
     u16 possible_digits;
-} Cell;
+} Sudoku_Solver_Cell;
 
 typedef struct {
-    Cell Cells[NUM_DIGITS][NUM_DIGITS];
+    Sudoku_Solver_Cell Cells[NUM_DIGITS][NUM_DIGITS];
 
     u32 number_of_digits_left_to_place;
 
@@ -167,34 +167,34 @@ typedef struct {
 
 #define FOREACH_CELL(solver)                                        \
     for (                                                           \
-        Cell *cell  = &(solver)->Cells[           0][           0]; \
+        Sudoku_Solver_Cell *cell  = &(solver)->Cells[           0][           0]; \
         cell       <= &(solver)->Cells[NUM_DIGITS-1][NUM_DIGITS-1]; \
         cell += 1                                                   \
     )
 
 #define FOREACH_CELL_IN_ROW(solver, row_number)                         \
     for (                                                               \
-        Cell *cell  = &(solver)->Cells[(row_number)][           0];     \
+        Sudoku_Solver_Cell *cell  = &(solver)->Cells[(row_number)][           0];     \
         cell       <= &(solver)->Cells[(row_number)][NUM_DIGITS-1];     \
         cell       += 1                                                 \
     )
 
 #define FOREACH_CELL_IN_COL(solver, col_number)                         \
     for (                                                               \
-        Cell *cell  = &(solver)->Cells[           0][(col_number)];     \
+        Sudoku_Solver_Cell *cell  = &(solver)->Cells[           0][(col_number)];     \
         cell       <= &(solver)->Cells[NUM_DIGITS-1][(col_number)];     \
         cell       += Array_Len((solver)->Cells[0]) /* should be 9 */   \
     )
 
 #define FOREACH_CELL_IN_BOX(solver, box_number)                                         \
     for (                                                                               \
-        Cell *cell  = &(solver)->Cells[(box_number)/3 * 3    ][(box_number)%3 * 3];     \
+        Sudoku_Solver_Cell *cell  = &(solver)->Cells[(box_number)/3 * 3    ][(box_number)%3 * 3];     \
         cell       <= &(solver)->Cells[(box_number)/3 * 3 + 2][(box_number)%3 * 3 + 2]; \
         cell = next_in_box_by_pointer((solver), (box_number), cell)                     \
     )
 
 
-internal Cell *next_in_box_by_pointer(Sudoku_Solver_Struct *solver, size_t box_number, Cell *current_cell) {
+internal Sudoku_Solver_Cell *next_in_box_by_pointer(Sudoku_Solver_Struct *solver, size_t box_number, Sudoku_Solver_Cell *current_cell) {
     // [0..9)
     size_t box_base_row = (box_number / 3) * 3;
     size_t box_base_col = (box_number % 3) * 3;
@@ -226,7 +226,7 @@ internal Cell *next_in_box_by_pointer(Sudoku_Solver_Struct *solver, size_t box_n
 
     size_t next_index_in_box = mapped_index + 1;
 
-    Cell *next_cell = &solver->Cells[box_base_row + next_index_in_box/3][box_base_col + next_index_in_box%3];
+    Sudoku_Solver_Cell *next_cell = &solver->Cells[box_base_row + next_index_in_box/3][box_base_col + next_index_in_box%3];
     return next_cell;
 }
 
@@ -265,7 +265,7 @@ internal Sudoku_Solver_Struct init_solver(void) {
 
 
 // is this needed?
-internal size_t cell_to_index(Sudoku_Solver_Struct *solver, Cell *cell) {
+internal size_t cell_to_index(Sudoku_Solver_Struct *solver, Sudoku_Solver_Cell *cell) {
     size_t index = cell - &solver->Cells[0][0];
     return index;
 }
@@ -274,7 +274,7 @@ typedef struct {
     s32 x, y;
 } Vec2i;
 
-internal Vec2i cell_to_xy(Sudoku_Solver_Struct *solver, Cell *cell) {
+internal Vec2i cell_to_xy(Sudoku_Solver_Struct *solver, Sudoku_Solver_Cell *cell) {
     size_t index = cell_to_index(solver, cell);
     Vec2i result = {
         .x = index % NUM_DIGITS,
@@ -316,7 +316,7 @@ internal void mark_and_place_digit(Sudoku_Solver_Struct *solver, size_t x, size_
     assert(Is_Between(x, 0, NUM_DIGITS-1));
     assert(Is_Between(y, 0, NUM_DIGITS-1));
 
-    Cell *cell = &solver->Cells[y][x];
+    Sudoku_Solver_Cell *cell = &solver->Cells[y][x];
 
     // make sure nothing was placed here before.
     assert(cell->placed_digit == 0);
@@ -489,7 +489,7 @@ Sudoku_Solver_Result Solve_Sudoku(Input_Sudoku_Puzzle input_sudoku) {
             }
             if (digit == 0) { continue; }
 
-            Cell *cell = &solver.Cells[j][i];
+            Sudoku_Solver_Cell *cell = &solver.Cells[j][i];
             // check if the digit is possible to place.
             if ((cell->possible_digits & DIGIT_BIT(digit)) == 0) {
                 sudoku_solver_result.sudoku_is_possible  = false;
@@ -621,7 +621,7 @@ internal Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver, Iterat
         assert(min_possible_results != 0); // this should have set the sudoku to invalid, unreachable()
     }
 
-    Cell *cell = &solver.Cells[pos.y][pos.x];
+    Sudoku_Solver_Cell *cell = &solver.Cells[pos.y][pos.x];
 
     switch (iteration_direction) {
     case ITER_FORWARDS:

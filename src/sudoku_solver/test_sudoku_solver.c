@@ -33,7 +33,7 @@ void test_foreach_cell_in_row_col_and_box(void) {
         {
             int cells_checked = 0;
             FOREACH_CELL_IN_ROW(&solver, i) {
-                Cell *expected_cell = &solver.Cells[i][cells_checked];
+                Sudoku_Solver_Cell *expected_cell = &solver.Cells[i][cells_checked];
                 // reducing TEST_MA.h pollution.
                 if (expected_cell != cell) { TEST_EXPECT_EQ(expected_cell, cell); }
 
@@ -45,7 +45,7 @@ void test_foreach_cell_in_row_col_and_box(void) {
         {
             int cells_checked = 0;
             FOREACH_CELL_IN_COL(&solver, i) {
-                Cell *expected_cell = &solver.Cells[cells_checked][i];
+                Sudoku_Solver_Cell *expected_cell = &solver.Cells[cells_checked][i];
                 // reducing TEST_MA.h pollution.
                 if (expected_cell != cell) { TEST_EXPECT_EQ(expected_cell, cell); }
 
@@ -58,7 +58,7 @@ void test_foreach_cell_in_row_col_and_box(void) {
             int base_row = (i/3) * 3, base_col = (i%3) * 3;
             int cells_checked = 0;
             FOREACH_CELL_IN_BOX(&solver, i) {
-                Cell *expected_cell = &solver.Cells[base_row + cells_checked/3][base_col + cells_checked%3];
+                Sudoku_Solver_Cell *expected_cell = &solver.Cells[base_row + cells_checked/3][base_col + cells_checked%3];
                 // reducing TEST_MA.h pollution.
                 if (expected_cell != cell) { TEST_EXPECT_EQ(expected_cell, cell); }
 
@@ -119,7 +119,7 @@ void test_Mark_and_Place_Digit(void) {
         int col   = rand() % 9;
         int digit = rand() % 9;
 
-        Cell *cell = &solver.Cells[row][col];
+        Sudoku_Solver_Cell *cell = &solver.Cells[row][col];
 
         if ((cell->possible_digits & DIGIT_BIT(digit)) == 0) continue;
 
@@ -184,7 +184,7 @@ void test_check_for_naked_singles(void) {
     int col   = rand() % 9;
     int digit = 4;
 
-    Cell *cell = &solver.Cells[row][col];
+    Sudoku_Solver_Cell *cell = &solver.Cells[row][col];
 
     // give this cell a naked single.
     cell->possible_digits = DIGIT_BIT(digit);
@@ -205,7 +205,7 @@ void test_check_for_single_in_row_and_columns(void) {
     { // test rows
         int digit = 1;
         int row, col;
-        Cell *naked_cell;
+        Sudoku_Solver_Cell *naked_cell;
 
         do {
             row   = rand() % 9;
@@ -226,7 +226,7 @@ void test_check_for_single_in_row_and_columns(void) {
     { // test cols
         int digit = 2;
         int row, col;
-        Cell *naked_cell;
+        Sudoku_Solver_Cell *naked_cell;
 
         do {
             row   = rand() % 9;
@@ -247,7 +247,7 @@ void test_check_for_single_in_row_and_columns(void) {
     { // test boxs
         int digit = 3;
         int row, col;
-        Cell *naked_cell;
+        Sudoku_Solver_Cell *naked_cell;
 
         do {
             row   = rand() % 9;
