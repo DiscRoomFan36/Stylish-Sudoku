@@ -43,6 +43,14 @@ typedef enum {
 } Sudoku_UI_Layer;
 
 
+// TODO
+// typedef enum {
+//     SM_BUILD,
+//     SM_SOLVE,
+//     SM_VIEW,
+// } Sudoku_Mode;
+
+
 
 typedef struct {
     // NO_DIGIT_PLACED means no digit
@@ -99,6 +107,12 @@ typedef struct {
 // SOA style, probably a bit overkill.
 typedef struct {
     Sudoku_Grid grid;
+
+    // useing arrow keys, move a selection thing.
+    struct {
+        s8 x, y;
+        bool has_been_inited;
+    } cursor;
 
 
     String name;
@@ -178,7 +192,8 @@ internal bool redo_sudoku(Sudoku *sudoku);
 internal bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku);
 
 
-internal void sudoku_maybe_handle_key_press(Sudoku *sudoku, KeyboardKey key);
+// just pass all key events into this thing. (if its selected or something)
+internal void sudoku_maybe_handle_key_press(Sudoku *sudoku, Input_Key_Event key);
 
 
 
@@ -339,32 +354,30 @@ bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku) {
 }
 
 
-void sudoku_maybe_handle_key_press(Sudoku *sudoku, KeyboardKey key) {
-    ASSERT(key != 0);
+void sudoku_maybe_handle_key_press(Sudoku *sudoku, Input_Key_Event event) {
+    ASSERT(event.key != 0);
 
     // for in_solve_mode, TODO remove.
     Context *context = get_context();
-    Input   *input   = get_input();
+    // Input   *input   = get_input();
 
     s8 number_key = -1;
     {
         const u8 number_keys[] = {KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE};
         for (u32 i = 0; i < Array_Len(number_keys); i++) {
-            if (key == number_keys[i])   number_key = i;
+            if (event.key == number_keys[i])   number_key = i;
         }
     }
-
-
     if (number_key != -1) {
         // TODO the user might want to press shift down on some digits and not
         // others, this only checks if it is down at all...
         //
         // could probably do some static trick...
         Sudoku_UI_Layer layer_to_place;
-        if      (input->keyboard.shift_down && input->keyboard.control_down) layer_to_place = SUL_COLOR;
-        else if (input->keyboard.shift_down)                                 layer_to_place = SUL_UNCERTAIN;
-        else if (input->keyboard.control_down)                               layer_to_place = SUL_CERTAIN;
-        else                                                                 layer_to_place = SUL_DIGIT;
+        if      (event.is_shift_down && event.is_control_down) layer_to_place = SUL_COLOR;
+        else if (event.is_shift_down)                          layer_to_place = SUL_UNCERTAIN;
+        else if (event.is_control_down)                        layer_to_place = SUL_CERTAIN;
+        else                                                   layer_to_place = SUL_DIGIT;
 
         // make sure that all boxes get the same result after pressing a key (all add or all remove)
         bool remove_number_this_press = true;
@@ -445,7 +458,7 @@ void sudoku_maybe_handle_key_press(Sudoku *sudoku, KeyboardKey key) {
     }
 
 
-    bool is_delete_key = (key == KEY_DELETE) || (key == KEY_BACKSPACE);
+    bool is_delete_key = (event.key == KEY_DELETE) || (event.key == KEY_BACKSPACE);
     if (is_delete_key) {
         ////////////////////////////////////////////////
         //             Removeing Digits
@@ -493,6 +506,116 @@ void sudoku_maybe_handle_key_press(Sudoku *sudoku, KeyboardKey key) {
     }
 
 
+    // weird spot to put this, but this must be done...
+    // i dont even remember if i have a init_sudoku() function...
+    //
+    // pretty sure Sudoku is is zero initalized.
+    if (!sudoku->cursor.has_been_inited) {
+        sudoku->cursor.has_been_inited = true;
+        sudoku->cursor.x = SUDOKU_SIZE / 2; // should be 4 (the middle)
+        sudoku->cursor.y = SUDOKU_SIZE / 2; // should be 4 (the middle)
+    }
+
+    bool is_cursor_move_up    = (event.key == KEY_UP)    || (event.key == KEY_W);
+    bool is_cursor_move_down  = (event.key == KEY_DOWN)  || (event.key == KEY_S);
+    bool is_cursor_move_left  = (event.key == KEY_LEFT)  || (event.key == KEY_A);
+    bool is_cursor_move_right = (event.key == KEY_RIGHT) || (event.key == KEY_D);
+
+    bool is_cursor_movement_key = is_cursor_move_up || is_cursor_move_down || is_cursor_move_left || is_cursor_move_right;
+    if (is_cursor_movement_key) {
+
+        // TODO think about were to init the cursor.
+
+        s8 next_x = sudoku->cursor.x;
+        s8 next_y = sudoku->cursor.y;
+
+        if (is_cursor_move_up   )   next_y -= 1;
+        if (is_cursor_move_down )   next_y += 1;
+        if (is_cursor_move_left )   next_x -= 1;
+        if (is_cursor_move_right)   next_x += 1;
+
+        next_x = Proper_Mod(next_x, SUDOKU_SIZE);
+        next_y = Proper_Mod(next_y, SUDOKU_SIZE);
+
+        if (!get_cell(&sudoku->grid, next_x, next_y)->is_selected) {
+            sudoku->cursor.x = next_x;
+            sudoku->cursor.y = next_y;
+        } else {
+            // we cannot just return here, we must catch
+            // the arrow key + not-shift-down, to break the
+            // cursor out of prison
+            //
+            // return;
+        }
+
+
+        // TODO this might draw more than one circle in a frame, that should be fine?
+        //
+        // TODO cant do this. needs draw_bounds
+        //
+        // if (get_debug_struct()->draw_cursor_position) {
+        //     Rectangle rec = get_cell_bounds_with_bounds(draw_bounds, sudoku->cursor.x, sudoku->cursor.y);
+        //     DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
+        // }
+
+
+        // now do the selection stuff
+        { // selection stuff
+
+            // need to have this in case the grid changes.
+            Sudoku_Grid previous_grid = sudoku->grid;
+
+            if (event.is_shift_down || event.is_control_down) {
+                // just select this new cell.
+                Sudoku_Cell *cell = get_cell(&sudoku->grid, sudoku->cursor.x, sudoku->cursor.y);
+                cell->is_selected = true;
+            } else {
+
+                // remove all other selects,
+                FOREACH_IJ_OF_SUDOKU(i, j) {
+                    Sudoku_Cell *cell = get_cell(&sudoku->grid, i, j);
+                    cell->is_selected = false;
+                }
+
+                // select the cell we ended up at.
+                Sudoku_Cell *cell = get_cell(&sudoku->grid, sudoku->cursor.x, sudoku->cursor.y);
+                cell->is_selected = true;
+            }
+
+
+            bool selected_changed = false;
+            FOREACH_IJ_OF_SUDOKU(i, j) {
+                bool is_selected = get_cell(&sudoku->grid, i, j)->is_selected;
+                bool previously_is_selected = get_cell(&previous_grid, i, j)->is_selected;
+
+                if (is_selected != previously_is_selected) {
+                    selected_changed = true;
+                    break;
+                }
+            }
+
+            // this should be fine? nothing could have changed here,
+            // only reason the other is a loop is because of .is_hovered
+            bool mem_eq = !Mem_Eq(&sudoku->grid, &previous_grid, sizeof(previous_grid));
+
+            ASSERT(selected_changed == mem_eq);
+
+            if (selected_changed) {
+                // this might play a lot of sounds at once.
+                play_sound("selection_changed");
+                Selected_Animation new_animation = {
+                    .t_animation   = 0,
+                    .prev_grid_state = previous_grid,
+                    .curr_grid_state = sudoku->grid,
+                };
+
+                Array_Append(&sudoku->selection_animation_array, new_animation);
+            }
+        }
+    }
+
+
+    // TODO is this safe to move this above the cursor code?
     if ((number_key != -1) || is_delete_key) {
         // Add to undo buffer if something just changed
         sudoku_maybe_add_grid_into_undo_buffer(sudoku);
@@ -582,7 +705,6 @@ internal void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary draw_bo
 // (x, y, wight, heigh) -> in pixels
 //
 void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height) {
-    // Context      *context = get_context();
     Theme        *theme        = get_theme();
     Input        *input        = get_input();
     Debug_Struct *debug_struct = get_debug_struct();
@@ -602,49 +724,38 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     if (!input->mouse.left.down) when_dragging_to_set_selected_to = true;
 
 
-    // TODO put in context or something.
-    local_persist s8 cursor_x = SUDOKU_SIZE / 2; // should be 4 (the middle)
-    local_persist s8 cursor_y = SUDOKU_SIZE / 2; // should be 4 (the middle)
-    {
-        s8 prev_x = cursor_x;
-        s8 prev_y = cursor_y;
-
-        if (input->keyboard.direction.up_pressed   ) cursor_y -= 1;
-        if (input->keyboard.direction.down_pressed ) cursor_y += 1;
-        if (input->keyboard.direction.left_pressed ) cursor_x -= 1;
-        if (input->keyboard.direction.right_pressed) cursor_x += 1;
-
-        cursor_x = Proper_Mod(cursor_x, SUDOKU_SIZE);
-        cursor_y = Proper_Mod(cursor_y, SUDOKU_SIZE);
-
-        // cursor cannot go back over a selected cell.
-        //
-        // if shift is not pressed, and the cursor couldn't move to the cell,
-        // but will be able to, it doesn't move.
-        if (get_cell(&sudoku->grid, cursor_x, cursor_y)->is_selected) {
-            cursor_x = prev_x;
-            cursor_y = prev_y;
-        }
-
-        if (debug_struct->draw_cursor_position) {
-            Rectangle rec = get_cell_bounds_with_bounds(draw_bounds, cursor_x, cursor_y);
-            DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
-        }
-    }
-
-
-
     ////////////////////////////////////////////////
     //            update sudoku grid
     ////////////////////////////////////////////////
+
+    // handle key presses
+    //
+    // TODO maybe just pass this into handle_and_draw_sudoku()? instead of relying on get_input()?
+    for (size_t i = 0; i < input->keyboard.keys_pressed.count; i++) {
+        Input_Key_Event event = input->keyboard.keys_pressed.buffer[i];
+        sudoku_maybe_handle_key_press(sudoku, event);
+    }
+
+    // cursor debug drawing
+    //
+    // we cannot do this in sudoku_maybe_handle_key_press(),
+    // because the cursor might not change at all, or get
+    // drawn a million times.
+    if (debug_struct->draw_cursor_position) {
+        Rectangle rec = get_cell_bounds_with_bounds(draw_bounds, sudoku->cursor.x, sudoku->cursor.y);
+        DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
+    }
+
 
     {
         ////////////////////////////////////////////////
         //              Selection stuff
         ////////////////////////////////////////////////
+
         Sudoku_Grid previous_grid = sudoku->grid;
 
         bool clicked_on_box = false;
+        // TODO introduce Vec2i into this code.
         s8 click_i, click_j;
 
         // phase 1
@@ -675,15 +786,13 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
                     cell->is_selected = cell->is_selected && input->keyboard.shift_or_control_down;
                 }
             }
-
-            if (input->keyboard.any_direction_pressed) {
-                bool cursor_is_here = ((s8)i == cursor_x) && ((s8)j == cursor_y);
-                cell->is_selected = cursor_is_here || (input->keyboard.shift_or_control_down && cell->is_selected);
-            }
         }
 
 
         // phase 2
+        //
+        // TODO dragging should use a line from the last position of
+        // the mouse to the new position of the mouse.
 
         // NOTE this begin/end TextureMode stuff is because if it was inside
         // this 9*9 loop, it drags the fps down to 30.
@@ -704,7 +813,9 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
             if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
                 cell->is_selected = when_dragging_to_set_selected_to;
-                cursor_x = i; cursor_y = j; // move the cursor here as well.
+                // this sets the cursor when dragging, the clicking
+                // code would not handle this.
+                sudoku->cursor.x = i; sudoku->cursor.y = j;
             }
         }
         if (debug_struct->draw_smaller_cell_hitbox) EndTextureMode();
@@ -712,7 +823,10 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
 
 
         if (clicked_on_box) {
-            cursor_x = click_i; cursor_y = click_j; // put cursor wherever mouse is.
+            // sets the cursor when clicking on a box, not quite the same
+            // thing as setting the cursor when dragging, because of the
+            // dragging hitbox's.
+            sudoku->cursor.x = click_i; sudoku->cursor.y = click_j;
 
             if (input->mouse.left.double_clicked) {
                 // @Hack, this variable will make the cell de-select right away,
@@ -777,12 +891,6 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         }
     }
 
-
-    // handle key presses
-   for (size_t i = 0; i < input->keyboard.keys_pressed.count; i++) {
-        KeyboardKey key = input->keyboard.keys_pressed.buffer[i];
-        sudoku_maybe_handle_key_press(sudoku, key);
-    }
 
     ////////////////////////////////////////////////
     //        Sudoku Logic - for highlighting

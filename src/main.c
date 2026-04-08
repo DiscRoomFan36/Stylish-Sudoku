@@ -64,14 +64,15 @@ bool source_code_location_eq(Source_Code_Location a, Source_Code_Location b) {
 
 
 
-
+// helpers and whatnot
 #include "theme.h"
-
-#include "sudoku_grid.h"
-#include "sound.h"
 #include "input.h"
+
+#include "sound.h"
 #include "logging.h"
 
+// sudoku stuff
+#include "sudoku_grid.h"
 #include "sudoku_solver/sudoku_solver.h"
 
 

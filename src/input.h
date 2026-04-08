@@ -3,6 +3,14 @@
 #define INPUT_H_
 
 
+typedef struct {
+    bool is_shift_down;
+    bool is_control_down;
+    bool is_alt_down;
+
+    KeyboardKey key;
+} Input_Key_Event;
+
 
 typedef struct {
     struct {
@@ -53,7 +61,7 @@ typedef struct {
             // TODO make this a thing that also keeps track of the
             // shift_down and cntl_down, make the application handle
             // each key event.
-            KeyboardKey buffer[32];
+            Input_Key_Event buffer[32];
             u64 count;
         } keys_pressed;
     } keyboard;
@@ -104,12 +112,12 @@ void update_input(void) {
 
 
         // in pixels because thats what GetMousePosition returns
-        const f32 max_distange_away_from_last_click_in_pixels = 5; // 5 pixels
+        const f32 max_distance_away_from_last_click_in_pixels = 5; // 5 pixels
 
         Vector2 last_click_location = input->mouse.left.last_click_location;
         f32 mouse_dist_sqr = Vector2DistanceSqr(last_click_location, input->mouse.pos);
 
-        bool is_close_enough = (mouse_dist_sqr <= (max_distange_away_from_last_click_in_pixels * max_distange_away_from_last_click_in_pixels));
+        bool is_close_enough = (mouse_dist_sqr <= Square(max_distance_away_from_last_click_in_pixels));
 
 
         // TODO think about triple clicks?
@@ -148,7 +156,18 @@ void update_input(void) {
                 int key = GetKeyPressed();
                 if (key == 0) break;
 
-                input->keyboard.keys_pressed.buffer[input->keyboard.keys_pressed.count] = key;
+                Input_Key_Event event = ZEROED;
+                event.key = key;
+
+                // TODO this is not the correct way to calculate these, would have to keep track
+                // of if the key is pressed or released, while also keeping in mind that i dont
+                // think this will get ever single event, so would have to check IsKeyDown() to
+                // make sure we didn't miss an event.
+                event.is_shift_down   = IsKeyDown(KEY_LEFT_SHIFT)   || IsKeyDown(KEY_RIGHT_SHIFT);
+                event.is_control_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+                event.is_alt_down     = IsKeyDown(KEY_LEFT_ALT)     || IsKeyDown(KEY_RIGHT_ALT);
+
+                input->keyboard.keys_pressed.buffer[input->keyboard.keys_pressed.count] = event;
                 input->keyboard.keys_pressed.count += 1;
             }
         }
