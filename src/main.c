@@ -786,7 +786,7 @@ void do_one_frame() {
     //        User Input
     ////////////////////////////////
     update_input();
-    // Input *input = get_input();
+    Input *input = get_input();
 
 
     { // debug stuff
@@ -804,8 +804,7 @@ void do_one_frame() {
     }
 
 
-
-    local_persist f64 percent = 0.7;
+    const f64 percent = 0.7;
     // percent = fmod(percent + input->time.dt, 1);
 
     Rectangle layout_total_area = {0, 0, context->window_width, context->window_height};
@@ -814,6 +813,98 @@ void do_one_frame() {
 
     if (context->debug.draw_layout_areas) {
         DebugDraw(DrawRectangleRec(layout_total_area,  ColorAlpha(BLUE, 0.7)));
+    }
+
+    { // layout_button_area
+        // give some padding around the edge.
+        layout_button_area = ShrinkRectangle(layout_button_area, theme->ui.button_area_padding);
+
+        // TODO more ui stuff.
+        /*
+        Rectangle_or_something scroll_able = ui_push_scrollable_area(&layout_button_area); {
+            ui_push( ui_dropdown_menu("Debug Controls") )
+            if (ui_checkbox("debug cell hitbox's")) {
+
+        }
+
+            ui_pop();
+        } ui_pop();
+        */
+
+
+        // TODO make a bunch of debug toggles.
+        //
+        // but have them in a drop down area
+
+
+        { // Undo / Redo
+            // TODO have these in the same row, side by side.
+            bool do_undo = ui_button("Undo Ctrl-Z", &layout_button_area);
+            bool do_redo = ui_button("Redo Ctrl-X", &layout_button_area);
+
+            do_undo = do_undo || (input->keyboard.control_down && input->keyboard.key.z_pressed);
+            // TODO cntl-x should be cut, but we dont have that yet.
+            do_redo = do_redo || (input->keyboard.control_down && input->keyboard.key.x_pressed);
+
+            if (do_undo)   undo_sudoku(context->sudoku);
+            if (do_redo)   redo_sudoku(context->sudoku);
+        }
+
+
+        if (ui_button("Toggle Build / Solve Mode", &layout_button_area)) {
+            context->in_solve_mode = !context->in_solve_mode;
+        }
+
+        if (ui_button("Clear Sudoku", &layout_button_area)) {
+            // TODO this is definitely a hack...
+            Sudoku_Digit_Grid zero_grid = ZEROED;
+            place_digit_grid_into_sudoku_grid(zero_grid, &context->sudoku->grid, false);
+
+            if (!sudoku_maybe_add_grid_into_undo_buffer(context->sudoku)) {
+                log("Nothing to clear!");
+            }
+        }
+
+        // button to randomly generate a sudoku
+        if (ui_button("Generate Random Sudoku", &layout_button_area)) {
+            Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
+
+            place_digit_grid_into_sudoku_grid(random_sudoku, &context->sudoku->grid, false);
+
+            bool changed = sudoku_maybe_add_grid_into_undo_buffer(context->sudoku);
+            if (!changed)   log_error("randomly generated sudoku was the same as the current grid?");
+        }
+
+        // button to solve sudoku
+        if (ui_button("Solve Sudoku", &layout_button_area)) {
+            Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
+
+            // this is on the main thread for now. its fast enough.
+            Sudoku_Solver_Result sudoku_solver_result = Solve_Sudoku(input_sudoku_puzzle);
+
+            if (sudoku_solver_result.sudoku_is_possible) {
+                log("Sudoku is possible.");
+
+                place_digit_grid_into_sudoku_grid(sudoku_solver_result.correct_grid, &context->sudoku->grid, true);
+
+                bool changed = sudoku_maybe_add_grid_into_undo_buffer(context->sudoku);
+                if (!changed)   log_error("solve sudoku didn't do anything?");
+
+            } else {
+                // TODO do more.
+                log_error("Sudoku is not possible");
+                switch (sudoku_solver_result.reason_not_possible) {
+                case RFSI_BAD_USER_INPUT:
+                case RFSI_NO_POSSIBLE_SOLUTION: {
+                    log_error("Reason: No Possible Solution");
+                } break;
+                case RFSI_MULTIPLE_SOLUTIONS: {
+                    log_error("Reason: More than 1 possible solution");
+                } break;
+                case RFSI_NONE: { UNREACHABLE(); } break;
+                }
+            }
+        }
     }
 
 
@@ -872,85 +963,6 @@ void do_one_frame() {
             );
         }
 
-    }
-
-    { // layout_button_area
-        // give some padding around the edge.
-        layout_button_area = ShrinkRectangle(layout_button_area, theme->ui.button_area_padding);
-
-        // TODO more ui stuff.
-        /*
-        Rectangle_or_something scroll_able = ui_push_scrollable_area(&layout_button_area); {
-            ui_push( ui_dropdown_menu("Debug Controls") )
-            if (ui_checkbox("debug cell hitbox's")) {
-
-        }
-
-            ui_pop();
-        } ui_pop();
-        */
-
-
-        // TODO make a bunch of debug toggles.
-        //
-        // but have them in a drop down area
-
-        // TODO have undo / redo here.
-
-        if (ui_button("Toggle Build / Solve Mode", &layout_button_area)) {
-            context->in_solve_mode = !context->in_solve_mode;
-        }
-
-        if (ui_button("Clear Sudoku", &layout_button_area)) {
-            // TODO this is definitely a hack...
-            Sudoku_Digit_Grid zero_grid = ZEROED;
-            place_digit_grid_into_sudoku_grid(zero_grid, &context->sudoku->grid, false);
-
-            if (!sudoku_maybe_add_grid_into_undo_buffer(context->sudoku)) {
-                log("Nothing to clear!");
-            }
-        }
-
-        // button to randomly generate a sudoku
-        if (ui_button("Generate Random Sudoku", &layout_button_area)) {
-            Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
-
-            place_digit_grid_into_sudoku_grid(random_sudoku, &context->sudoku->grid, false);
-
-            bool changed = sudoku_maybe_add_grid_into_undo_buffer(context->sudoku);
-            if (!changed)   log_error("randomly generated sudoku was the same as the current grid?");
-        }
-
-        // button to solve sudoku
-        if (ui_button("Solve Sudoku", &layout_button_area)) {
-            Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
-
-            // this is on the main thread for now. its fast enough.
-            Sudoku_Solver_Result sudoku_solver_result = Solve_Sudoku(input_sudoku_puzzle);
-
-            if (sudoku_solver_result.sudoku_is_possible) {
-                log("Sudoku is possible.");
-
-                place_digit_grid_into_sudoku_grid(sudoku_solver_result.correct_grid, &context->sudoku->grid, true);
-
-                bool changed = sudoku_maybe_add_grid_into_undo_buffer(context->sudoku);
-                if (!changed)   log_error("solve sudoku didn't do anything?");
-
-            } else {
-                // TODO do more.
-                log_error("Sudoku is not possible");
-                switch (sudoku_solver_result.reason_not_possible) {
-                case RFSI_BAD_USER_INPUT:
-                case RFSI_NO_POSSIBLE_SOLUTION: {
-                    log_error("Reason: No Possible Solution");
-                } break;
-                case RFSI_MULTIPLE_SOLUTIONS: {
-                    log_error("Reason: More than 1 possible solution");
-                } break;
-                case RFSI_NONE: { UNREACHABLE(); } break;
-                }
-            }
-        }
     }
 
 

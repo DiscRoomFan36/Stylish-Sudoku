@@ -632,19 +632,6 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     }
 
 
-    ////////////////////////////////
-    //         Undo / Redo
-    ////////////////////////////////
-
-    if (input->keyboard.control_down && input->keyboard.key.z_pressed) {
-        undo_sudoku(sudoku);
-    }
-
-    // TODO cntl-x should be cut, but we dont have that yet.
-    if (input->keyboard.control_down && input->keyboard.key.x_pressed) {
-        redo_sudoku(sudoku);
-    }
-
 
     ////////////////////////////////////////////////
     //            update sudoku grid
