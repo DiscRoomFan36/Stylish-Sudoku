@@ -402,7 +402,8 @@ void place_digit_grid_into_sudoku_grid(Sudoku_Digit_Grid digit_grid, Sudoku_Grid
         u8 digit = digit_grid.digits[j][i];
 
         if (digit == 0) {
-            log_error("digit is equal to zero, what should we do here?");
+            // ignore this digit. this is just hove the solver functions, we dont want to place '0' digits.
+            // log_error("digit is equal to zero, what should we do here?");
         } else {
             Place_Digit(grid, i, j, digit, .dont_play_sound = true);
         }
