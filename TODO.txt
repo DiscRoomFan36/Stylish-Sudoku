@@ -23,7 +23,7 @@ USEABILITY:
 
 UI:
     - make a better ui
-    - undo / redo buttons
+    - undo / redo buttons (but cooler)
     - all debug options should be checkbox's
     - save / load buttons
 
@@ -36,6 +36,9 @@ SOUND:
     - sound for undo/redo
 
     - sound for selection?
+
+    - sound for winning.
+    - sound for randomly generating a sudoku. (slot machine?)
 
 
 
