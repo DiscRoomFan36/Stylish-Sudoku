@@ -19,6 +19,8 @@ USEABILITY:
 
     - double clicking on a cell that doesn't have a digit in it should smartly select cells that have similar markings.
 
+    - a way to see the key bindings, as well as a way to use all those features without the keys
+
 UI:
     - make a better ui
     - undo / redo buttons
