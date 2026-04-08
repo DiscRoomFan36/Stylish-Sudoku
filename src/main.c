@@ -105,6 +105,18 @@ bool source_code_location_eq(Source_Code_Location a, Source_Code_Location b) {
 
 
 typedef struct {
+    bool draw_smaller_cell_hitbox;
+    bool draw_cursor_position;
+    bool draw_color_points;
+    bool draw_fps;
+
+    bool draw_layout_areas;
+
+    RenderTexture2D debug_texture;
+} Debug_Struct;
+
+
+typedef struct {
     // all the memory in this program comes from here.
     Arena_Pool pool;
     // resets every frame.
@@ -113,16 +125,7 @@ typedef struct {
     s32 window_width;
     s32 window_height;
 
-    struct {
-        bool draw_smaller_cell_hitbox;
-        bool draw_cursor_position;
-        bool draw_color_points;
-        bool draw_fps;
-
-        bool draw_layout_areas;
-
-        RenderTexture2D debug_texture;
-    } debug;
+    Debug_Struct debug_struct;
 
     Input input;
 
@@ -152,6 +155,9 @@ internal void uninit_context(void);
 // the context from in each function.
 //
 internal Context *get_context(void) { return &__context_base; }
+
+// so we can separate calls to context for context reasons, and for debugging reasons.
+internal Debug_Struct *get_debug_struct() { return &get_context()->debug_struct; }
 
 //
 // NOTE. The difference between saying 'Scratch_Get()' and 'Pool_Get(&context->pool)'
@@ -195,11 +201,14 @@ void init_context(void) {
     context->window_height = GetScreenHeight();
 
     { // debug
-        context->debug.draw_smaller_cell_hitbox  = false;
-        context->debug.draw_cursor_position      = false;
-        context->debug.draw_color_points         = false;
-        context->debug.draw_fps                  = false;
-        context->debug.draw_layout_areas         = false;
+        Debug_Struct *debug_struct = get_debug_struct();
+        ASSERT(debug_struct == &context->debug_struct);
+
+        debug_struct->draw_smaller_cell_hitbox  = false;
+        debug_struct->draw_cursor_position      = false;
+        debug_struct->draw_color_points         = false;
+        debug_struct->draw_fps                  = false;
+        debug_struct->draw_layout_areas         = false;
 
         // the perhaps better option would be to make DebugDraw## versions of the draw
         // functions that buffer the commands until later, but that would require
@@ -207,9 +216,9 @@ void init_context(void) {
         //
         // another option would be to somehow draw rectangles with depth,
         // and make debug stuff the most important.
-        context->debug.debug_texture = LoadRenderTexture(context->window_width, context->window_height);
+        debug_struct->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
 
-    #define DebugDraw(draw_call) do { BeginTextureMode(context->debug.debug_texture); (draw_call);  EndTextureMode(); } while (0)
+    #define DebugDraw(draw_call) do { BeginTextureMode(get_debug_struct()->debug_texture); (draw_call);  EndTextureMode(); } while (0)
 
     }
 
@@ -250,7 +259,7 @@ void uninit_context(void) {
     Context *context = get_context();
 
     Pool_Free_Arenas(&context->pool);
-    UnloadRenderTexture(context->debug.debug_texture);
+    UnloadRenderTexture(get_debug_struct()->debug_texture);
 
     // goodbye pointers.
     Mem_Zero_Struct(&context);
@@ -756,8 +765,9 @@ internal bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_L
 
 
 void do_one_frame() {
-    Context *context = get_context();
-    Theme *theme = get_theme();
+    Context      *context      = get_context();
+    Theme        *theme        = get_theme();
+    Debug_Struct *debug_struct = get_debug_struct();
 
     // make sure the sudoku grid did not change between frames.
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
@@ -775,8 +785,8 @@ void do_one_frame() {
         context->window_height   = GetScreenHeight();
 
         if (prev_window_width != context->window_width || prev_window_height != context->window_height) {
-            UnloadRenderTexture(context->debug.debug_texture);
-            context->debug.debug_texture = LoadRenderTexture(context->window_width, context->window_height);
+            UnloadRenderTexture(debug_struct->debug_texture);
+            debug_struct->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
         }
     }
 
@@ -793,14 +803,14 @@ void do_one_frame() {
         // Clear debug to all zero's
         DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
 
-        toggle_when_pressed(&context->debug.draw_smaller_cell_hitbox,    KEY_F1);
-        toggle_when_pressed(&context->debug.draw_cursor_position,        KEY_F2);
-        toggle_when_pressed(&context->debug.draw_color_points,           KEY_F3);
+        toggle_when_pressed(&debug_struct->draw_smaller_cell_hitbox,    KEY_F1);
+        toggle_when_pressed(&debug_struct->draw_cursor_position,        KEY_F2);
+        toggle_when_pressed(&debug_struct->draw_color_points,           KEY_F3);
 
-        toggle_when_pressed(&context->debug.draw_fps,                    KEY_F4);
-        if (context->debug.draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
+        toggle_when_pressed(&debug_struct->draw_fps,                    KEY_F4);
+        if (debug_struct->draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
 
-        toggle_when_pressed(&context->debug.draw_layout_areas, KEY_F5);
+        toggle_when_pressed(&debug_struct->draw_layout_areas, KEY_F5);
     }
 
 
@@ -811,7 +821,7 @@ void do_one_frame() {
     Rectangle layout_sudoku_area = layout_take_from(&layout_total_area, LAY_LEFT, Amount(LAY_IN_FRACTION, percent));
     Rectangle layout_button_area = layout_total_area;
 
-    if (context->debug.draw_layout_areas) {
+    if (debug_struct->draw_layout_areas) {
         DebugDraw(DrawRectangleRec(layout_total_area,  ColorAlpha(BLUE, 0.7)));
     }
 
@@ -917,7 +927,7 @@ void do_one_frame() {
         // take some space to make title.
         Rectangle layout_title_area = layout_take_from(&layout_sudoku_area, LAY_UP, Amount(LAY_IN_PIXELS, theme->title_text_font_size + padding*2));
 
-        if (context->debug.draw_layout_areas) {
+        if (debug_struct->draw_layout_areas) {
             DebugDraw(DrawRectangleRec(layout_sudoku_area,  ColorAlpha(RED, 0.7)));
             DebugDraw(DrawRectangleRec(layout_title_area, ColorAlpha(GREEN, 0.7)));
         }
@@ -970,7 +980,7 @@ void do_one_frame() {
     draw_logger_frame(10, 40);
 
     // draw the debug stuff.
-    DrawTextureRightsideUp(context->debug.debug_texture.texture, 0, 0);
+    DrawTextureRightsideUp(debug_struct->debug_texture.texture, 0, 0);
 
     EndDrawing();
 }
