@@ -890,6 +890,16 @@ void do_one_frame() {
             context->in_solve_mode = !context->in_solve_mode;
         }
 
+        if (ui_button("Clear Sudoku", &layout_button_area)) {
+            // TODO this is definitely a hack...
+            Sudoku_Digit_Grid zero_grid = ZEROED;
+            place_digit_grid_into_sudoku_grid(zero_grid, &context->sudoku->grid, false);
+
+            if (!sudoku_maybe_add_grid_into_undo_buffer(context->sudoku)) {
+                log("Nothing to clear!");
+            }
+        }
+
         // button to randomly generate a sudoku
         if (ui_button("Generate Random Sudoku", &layout_button_area)) {
             Sudoku_Digit_Grid random_sudoku = Generate_Random_Sudoku(20);
