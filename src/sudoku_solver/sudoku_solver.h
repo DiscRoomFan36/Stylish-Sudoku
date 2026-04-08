@@ -597,7 +597,7 @@ internal Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver, Iterat
 
     Vec2i pos = {-1, -1};
     {
-        u32 min_possible_results = NUM_DIGITS+1;
+        u32 min_possible_results = NUM_DIGITS + 1;
         FOREACH_CELL(&solver) {
             Vec2i cell_pos = cell_to_xy(&solver, cell);
 
@@ -615,11 +615,10 @@ internal Recur_Result recur_and_solve_sudoku(Sudoku_Solver_Struct solver, Iterat
 
         // TODO handle when grid is full, or something went wrong.
         assert(min_possible_results != NUM_DIGITS + 1);
-
-        // we will handle this, but not in this loop.
-        assert(min_possible_results != 0);
-        assert(min_possible_results != 1);
         assert(pos.x != -1 && pos.y != -1);
+
+        assert(min_possible_results != 1); // this should have allready been done in the deductions.
+        assert(min_possible_results != 0); // this should have set the sudoku to invalid, unreachable()
     }
 
     Cell *cell = &solver.Cells[pos.y][pos.x];
