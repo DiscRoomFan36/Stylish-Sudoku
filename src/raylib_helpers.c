@@ -171,7 +171,7 @@ internal void DrawTextCentered(Font_And_Size font_and_size, const char *text, Ve
     position.x -= text_size.x/2; // center text
     position.y -= text_size.y/2; // center text
 
-    // if a font is drawn inbetween pixels, it looks dumb
+    // if a font is drawn between pixels, it looks dumb
     position.x = Round(position.x);
     position.y = Round(position.y);
 

@@ -218,10 +218,10 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
 
 
     // we'll do something special with these later.
-    String_Array new_line_seperated_text_array = string_split_by(text, "\n");
+    String_Array new_line_separated_text_array = string_split_by(text, "\n");
 
-    for (u32 k = 0; k < new_line_seperated_text_array.count; k++) {
-        String text_without_new_lines = new_line_seperated_text_array.items[k];
+    for (u32 k = 0; k < new_line_separated_text_array.count; k++) {
+        String text_without_new_lines = new_line_separated_text_array.items[k];
 
         // get all the individual words,
         //
@@ -296,9 +296,10 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
         }
 
 
-        // dont do thing if this is the last new_line_seperated_text_array item.
-        if (k != new_line_seperated_text_array.count-1) {
-            Array_Append(&result, S("")); // append the empty string, to indecate a newline.
+        // dont do thing if this is the last new_line_separated_text_array item.
+        if (k != new_line_separated_text_array.count-1) {
+            // append the empty string, to indicate a newline.
+            Array_Append(&result, S(""));
         }
     }
 
