@@ -4,7 +4,9 @@
 // Author   - Fletcher M
 //
 // Created  - 04/08/25
-// Modified - 02/11/25
+// Modified - 19/04/26
+//
+// Version  - 0.1.7
 //
 // Make sure to...
 //      #define BESTED_IMPLEMENTATION
@@ -55,6 +57,7 @@ typedef int32_t         s32;
 typedef int16_t         s16;
 typedef int8_t          s8;
 
+// fixed width bool types, might be useful, but probably not.
 typedef u64             b64;
 typedef u32             b32;
 typedef u16             b16;
@@ -95,8 +98,13 @@ typedef double          f64;
 
 // I really hate c++ sometimes
 #ifdef __cplusplus
+    // this allows c++ to do value initialization,
+    // witch is spiritually the same thing.
+    //
+    // also c++ complains if there is only 1 zero.
     #define ZEROED { /* Imagine there was a zero here */ }
 #else
+    // pretty sure this zero is necessary in C
     #define ZEROED {0}
 #endif
 
@@ -117,6 +125,8 @@ typedef double          f64;
 
 // integers only
 #define Is_Pow_2(n)                 (((n) != 0) && (((n) & ((n)-1)) == 0))
+
+#define Proper_Mod(x, y) ({ Typeof(y) _y = (y); (((x) % _y) + _y) % _y; })
 
 #define Div_Ceil(x, y)      (((x) + (y) - 1) / (y))
 #define Div_Floor(x, y)     ((x) / (y))
@@ -177,33 +187,59 @@ typedef double          f64;
 
 
 // ===================================================
+//               Source Code Location
+// ===================================================
+
+// this is just pretty handy to carry around.
+typedef struct {
+    const char *file;
+    s32 line;
+} Source_Code_Location;
+
+// printf helpers
+#define SCL_Fmt         "%s:%d:"
+#define SCL_Arg(scl)    scl.file, scl.line
+
+#define Get_Source_Code_Location() ( (Source_Code_Location){ .file = __FILE__, .line = __LINE__ } )
+
+bool source_code_location_eq(Source_Code_Location a, Source_Code_Location b);
+
+
+
+// ===================================================
 //         assert and aborting functions
 // ===================================================
 
+// this is probably not that good. kinda just a worse assert(),
+// since i dont know how to get the pretty function text.
 #define ASSERT(expr) do { if (!(expr)) {                                                    \
+        Source_Code_Location scl = Get_Source_Code_Location();                              \
         fprintf(stderr, "===========================================\n");                   \
-        fprintf(stderr, "%s:%d: ASSERTION ERROR: \"%s\"\n", __FILE__, __LINE__, #expr);     \
+        fprintf(stderr, SCL_Fmt" ASSERTION ERROR: \"%s\"\n", SCL_Arg(scl), #expr);          \
         fprintf(stderr, "===========================================\n");                   \
         abort();                                                                            \
     } } while (0)
 
 #define PANIC(message, ...) do {                                                            \
+        Source_Code_Location scl = Get_Source_Code_Location();                              \
         fprintf(stderr, "===========================================\n");                   \
-        fprintf(stderr, "%s:%d: PANIC: " message "\n", __FILE__, __LINE__, ##__VA_ARGS__);    \
+        fprintf(stderr, SCL_Fmt" PANIC: " message "\n", SCL_Arg(scl), ##__VA_ARGS__);       \
         fprintf(stderr, "===========================================\n");                   \
         abort();                                                                            \
     } while (0)
 
 #define UNREACHABLE() do {                                                                  \
+        Source_Code_Location scl = Get_Source_Code_Location();                              \
         fprintf(stderr, "===========================================\n");                   \
-        fprintf(stderr, "%s:%d: UNREACHABLE\n", __FILE__, __LINE__);                        \
+        fprintf(stderr, SCL_Fmt" UNREACHABLE\n", SCL_Arg(scl));                             \
         fprintf(stderr, "===========================================\n");                   \
         abort();                                                                            \
     } while (0)
 
 #define TODO(message, ...) do {                                                             \
+        Source_Code_Location scl = Get_Source_Code_Location();                              \
         fprintf(stderr, "===========================================\n");                   \
-        fprintf(stderr, "%s:%d: TODO: " message "\n", __FILE__, __LINE__, ##__VA_ARGS__);     \
+        fprintf(stderr, SCL_Fmt" TODO: " message "\n", SCL_Arg(scl), ##__VA_ARGS__);        \
         fprintf(stderr, "===========================================\n");                   \
         abort();                                                                            \
     } while (0)
@@ -221,11 +257,11 @@ static_assert(sizeof(u64) >= sizeof(void*), "A pointer is pretty much always a u
 // this it was probably a pointer in the first place.
 #define U64_To_Ptr(U64)     ((void*)(U64))
 
-b32 Mem_Is_Aligned          (void *ptr, u64 alignment);
-u64 Mem_Align_Forward       (u64 size, u64 alignment); // returns aligned value
-u64 Mem_Align_Back          (u64 size, u64 alignment); // returns aligned value
-void *Mem_Byte_Offset       (void *ptr, s64 bytes);
-s64 Mem_Ptr_Diff            (void *ptr1, void *ptr2);  // ptr1 - ptr2
+bool  Mem_Is_Aligned          (void *ptr, u64 alignment);
+u64   Mem_Align_Forward       (u64 size, u64 alignment); // returns aligned value
+u64   Mem_Align_Back          (u64 size, u64 alignment); // returns aligned value
+void *Mem_Byte_Offset         (void *ptr, s64 bytes);
+s64   Mem_Ptr_Diff            (void *ptr1, void *ptr2);  // ptr1 - ptr2
 
 void *Mem_Copy(void *dest, void *src, u64 size);
 void *Mem_Move(void *dest, void *src, u64 size);
@@ -245,8 +281,8 @@ s32   Mem_Cmp (void *ptr1, void *ptr2, u64 count);
     #endif
 #endif // BESTED_ALIGNED_ALLOC
 
-// this is allways based on BESTED_ALLIGNED_ALLOC,
-// but no code will assert if BESTED_ALIGNED_ALLOC dosent return the right allignment.
+// this is always based on BESTED_ALIGNED_ALLOC,
+// but no code will assert if BESTED_ALIGNED_ALLOC doesn't return the right alignment.
 #define BESTED_MALLOC(size)                     BESTED_ALIGNED_ALLOC(Alignof(u64), size)
 
 
@@ -291,9 +327,9 @@ s32   Mem_Cmp (void *ptr1, void *ptr2, u64 count);
 #define Atomic_Clear(object)                Atomic_Store(object, false)
 
 // capture a lock for the duration of some scope.
-// this is made of 2 statements so dont put it right after an if statment or something...
+// this is made of 2 statements so dont put it right after an if statement or something...
 //
-// I shouldnt have to say this but NEVER try to escape the scope any other way then the bottom.
+// I shouldn't have to say this but NEVER try to escape the scope any other way then the bottom.
 #define Atomic_Capture_Lock(lock) while (Atomic_Test_And_Set(lock)); for (int __lock_macro_holder = 0; __lock_macro_holder == 0; __lock_macro_holder = (Atomic_Clear(lock), 1))
 
 
@@ -304,14 +340,14 @@ s32   Mem_Cmp (void *ptr1, void *ptr2, u64 count);
 
 
 // if you provide a version of ARENA_PANIC that dose not abort(),
-// we will return immidiatly after this macro is called.
+// we will return immediately after this macro is called.
 #ifndef ARENA_PANIC
-    #define ARENA_PANIC(file, line, reason, ...)                                                            \
-        do {                                                                                                \
-            fprintf(stderr, "===========================================\n");                               \
-            fprintf(stderr, "%s:%d: ARENA PANIC: \"" reason "\"\n", (file), (line), ##__VA_ARGS__);         \
-            fprintf(stderr, "===========================================\n");                               \
-            abort();                                                                                        \
+    #define ARENA_PANIC(scl, reason, ...)                                                               \
+        do {                                                                                            \
+            fprintf(stderr, "===========================================\n");                           \
+            fprintf(stderr, SCL_Fmt" ARENA PANIC: \"" reason "\"\n", SCL_Arg(scl), ##__VA_ARGS__);      \
+            fprintf(stderr, "===========================================\n");                           \
+            abort();                                                                                    \
         } while(0)
 #endif
 
@@ -344,6 +380,8 @@ typedef struct Region {
     u64 capacity_in_bytes;
 
     // used in Arena_Free()
+    //
+    // also this might be the only use of b32 ever. wow.
     b32 do_not_free_this;
     // extra padding bytes.
     u8 padding[4];
@@ -369,14 +407,14 @@ typedef struct Arena {
     //
     // You may want this if you want your programs to be bullet proof,
     // to not panic at the first sign of trouble.
-    b32 dont_panic_when_allocation_failure;
+    bool dont_panic_when_allocation_failure;
 
     // If this is set to True, if it runs out of memory in its current Region, it will panic.
     // Note. Arena_Initialize_First_Page() will still trigger this function.
     //
     // Uou may want this if you want more control over when your program allocates,
     // and want your program to have a fixed amount of memory usage.
-    b32 panic_when_trying_to_allocate_new_page;
+    bool panic_when_trying_to_allocate_new_page;
 } Arena;
 
 // used for marking and then rewinding an arena.
@@ -388,14 +426,14 @@ typedef struct Arena_Mark {
 
 typedef struct {
     u64 alignment;
-    b32 clear_to_zero;
+    bool clear_to_zero;
 } Arena_Alloc_Opt;
 
 
 // Allocate some memory in a arena, uses macro tricks to give you more options.
-void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line);
+void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_Code_Location source_code_location);
 
-#define Arena_Alloc(arena, size, ...)      _Arena_Alloc((arena), (size), (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = true, __VA_ARGS__ }, __FILE__, __LINE__)
+#define Arena_Alloc(arena, size, ...)      _Arena_Alloc((arena), (size), (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = true, __VA_ARGS__ }, Get_Source_Code_Location())
 #define Arena_Alloc_Struct(arena, type, ...)                         (type *)Arena_Alloc((arena), sizeof(type), .alignment = Alignof(type), ##__VA_ARGS__)
 
 
@@ -410,17 +448,17 @@ void Arena_Set_To_Mark(Arena *arena, Arena_Mark mark);
 // Will do nothing if the first page is already created.
 //
 // If 'first_page_size_in_bytes' is set to 0, the default is used, see 'minimum_allocation_size' comment above.
-void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, const char *file, s32 line);
+void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, Source_Code_Location source_code_location);
 #define Arena_Initialize_First_Page(arena, first_page_size_in_bytes)        \
-    _Arena_Initialize_First_Page((arena), (first_page_size_in_bytes), __FILE__, __LINE__);
+    _Arena_Initialize_First_Page((arena), (first_page_size_in_bytes), Get_Source_Code_Location());
 
 
 // Care has been taken, so that when Arena_free is called,
 // the pointer to the buffer provided here will not be free'd.
-void _Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, const char *file, s32 line);
+void _Arena_Add_Buffer_As_Storage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, Source_Code_Location source_code_location);
 
-#define Arena_Add_Buffer_As_Storeage_Space(arena, buffer, buffer_size_in_bytes)     \
-    _Arena_Add_Buffer_As_Storeage_Space((arena), (buffer), (buffer_size_in_bytes), __FILE__, __LINE__)
+#define Arena_Add_Buffer_As_Storage_Space(arena, buffer, buffer_size_in_bytes)     \
+    _Arena_Add_Buffer_As_Storage_Space((arena), (buffer), (buffer_size_in_bytes), Get_Source_Code_Location())
 
 
 // sprintf useing the arena as a buffer.
@@ -438,9 +476,14 @@ void Arena_Free (Arena *arena);
 typedef u32 Pool_Flag_Type;
 #define NUM_POOL_ARENAS (sizeof(Pool_Flag_Type) * 8)
 
+//
+// TODO this struct should have default arena settings,
+// but how would this work if you wanted
+// to give different arena's different settings?
+//
 typedef struct Arena_Pool {
     Atomic(Pool_Flag_Type)  in_use_flags;
-    Atomic(b32)             creating_new_pool_in_chain_lock;
+    Atomic(bool)            creating_new_pool_in_chain_lock;
 
     Arena arena_pool[NUM_POOL_ARENAS];
 
@@ -455,6 +498,8 @@ void Pool_Release(Arena_Pool *pool, Arena *to_release);
 
 // this could do something fuck-y if done when multiple threads are running,
 // but your an idiot to do that.
+//
+// also releases all pools.
 void Pool_Free_Arenas(Arena_Pool *pool);
 
 
@@ -464,7 +509,7 @@ void Pool_Free_Arenas(Arena_Pool *pool);
 // ===================================================
 
 // returns true if c is one of the ASCII whitespace characters.
-b32 Is_Whitespace(char c);
+bool Is_Whitespace(char c);
 #define To_Upper(c) (('a' <= (c) && (c) <= 'z') ? ((c) - 'a' + 'A') : (c))
 #define To_Lower(c) (('A' <= (c) && (c) <= 'Z') ? ((c) - 'A' + 'a') : (c))
 
@@ -488,7 +533,7 @@ const char *temp_String_To_C_Str(String s);
 
 
 typedef struct {
-    b32 null_terminate;
+    bool null_terminate;
 } String_Duplicate_Opt;
 
 // if arena == NULL, uses BESTED_MALLOC.
@@ -500,11 +545,11 @@ String _String_Duplicate(Arena *arena, String s, String_Duplicate_Opt opt);
 // in place.
 void    String_To_Upper(String *s);
 
-b32     String_Eq           (String s1, String s2);
-b32     String_Starts_With  (String s, String prefix);
-b32     String_Ends_With    (String s, String postfix);
+bool    String_Eq           (String s1, String s2);
+bool    String_Starts_With  (String s, String prefix);
+bool    String_Ends_With    (String s, String postfix);
 
-b32     String_Contains_Char        (String s, char c);
+bool    String_Contains_Char        (String s, char c);
 // finds the first occurrence of c in s, -1 on failure
 s64     String_Find_Index_Of_Char   (String s, char c);
 // finds the first occurrence of needle in s, -1 on failure
@@ -521,7 +566,7 @@ void    String_Advance  (String *s, s64 count);
 // dose not check for null, or do any bounds checking. thats on you.
 String  String_Advanced (String s, s64 count);
 
-typedef b32 (*char_to_bool_func)(char);
+typedef bool (*char_to_bool_func)(char);
 // remove ASCII whitespace characters from the right of the String.
 String  String_Trim_Right(String s);
 // returns a String with the front chopped off, according to the test function.
@@ -623,7 +668,7 @@ u64 String_Builder_Total_Capacity(String_Builder *sb);
 void String_Builder_Clear(String_Builder *sb);
 
 // Dose not check for NULL byte
-void String_Builder_Ptr_And_Size(String_Builder *sb, char *ptr, u64 size);
+void String_Builder_Ptr_And_Size(String_Builder *sb, void *ptr, u64 size);
 // Dose not check for NULL byte
 void String_Builder_String(String_Builder *sb, String s);
 
@@ -651,58 +696,90 @@ void String_Builder_Free(String_Builder *sb);
     #define ARRAY_INITAL_CAPACITY       32
 #endif
 
-//
-// Example Array:
-//
-// struct float_Array {
-//     _Array_Header_;
-//     f32 *items;
-// }
-//
-// we could make this position independent with a union.
-#define _Array_Header_ struct { u64 count; u64 capacity; Arena *allocator; }
 
-typedef _Array_Header_ Array_Header;
-void *Array_Grow(Array_Header *header, void *array, u64 item_size, u64 item_align, u64 count, b32 clear_to_zero, const char *file, s32 line);
-void Array_Shift(Array_Header *header, void *array, u64 item_size, u64 from_index);
+//
+// Example:
+//   - make a variable
+//      Array(Foo) foo_array;
+//
+//   - make a type
+//      typedef Array(Bar) Bar_Array;
+//
+//   foo_array.items     = /* the array pointer */
+//   foo_array.count     = /* number of items in array */
+//   foo_array.capacity  = /* the capacity */
+//   foo_array.allocator = /* a settable arena allocator */
+//
+#define Array(Type)                         \
+    struct {                                \
+        Type *items;                        \
+        u64 count;                          \
+        u64 capacity;                       \
+        Arena *allocator;                   \
+    }
 
-#define Array_Header_Cast(a)    ((Array_Header*)(a))
+
+// this struct shares the same shape as every array, so we can pass a pointer
+// to an array into a function, and still work normally with its contents.
+typedef struct {
+    void *items;
+    u64 count;
+    u64 capacity;
+    Arena *allocator;
+} Generic_Array;
+
+// so generic functions know how to manipulate the item pointer.
+typedef struct {
+    u64 item_size;
+    u64 item_align;
+} Array_Item_Type_Properties_Struct;
+
+
 #define Array_Item_Size(a)      sizeof(*(a)->items)
 #define Array_Item_Align(a)     Alignof(*(a)->items)
+#define Get_Item_Type_Properties(array) ( (Array_Item_Type_Properties_Struct){ Array_Item_Size(array), Array_Item_Align(array) } )
+
+// might increase the capacity of the array,
+// array will be able to hold at least count elements.
+void Array_Maybe_Grow(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 new_count, bool clear_to_zero, Source_Code_Location source_code_location);
+
+// shifts the array left, why do i have this function?
+void Array_Shift(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 from_index);
+
+
 
 // add a single value
-#define Array_Append(a, value)                                                                                                                                      \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + 1, false, __FILE__, __LINE__),    \
-    (a)->items[(a)->count++] = (value))
+//
+// could be a function, but would have to take a void* and those suck.
+// this is a macro so you dont have to make a reference every time you add something.
+#define Array_Append(array, value)                                                                                                          \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + 1, false, Get_Source_Code_Location()),     \
+    (array)->items[(array)->count++] = (value))
 
-// add 'n' unzero'd items, returns a pointer to the first element
-#define Array_Add(a, n)                                                                                                                                             \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + (n), false, __FILE__, __LINE__),  \
-    (a)->count += (n),                                                                                                                                              \
-    &(a)->items[(a)->count - (n)])
+#define Array_Add(array, n, zeroed)                                                                                                         \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + (n), zeroed, Get_Source_Code_Location()),  \
+    (array)->count += (n),                                                                                                                  \
+    &(array)->items[(array)->count - (n)])
 
 
-// Add 'n' zero'd items to the back of the list
-#define Array_Add_Clear(a, n)                                                                                                                                       \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + (n), true, __FILE__, __LINE__),   \
-    (a)->count += (n),                                                                                                                                              \
-    &(a)->items[(a)->count - (n)])
 
 // make sure there is enough room to hold 'n' items, dose not increase count.
-#define Array_Reserve(a, n)                                                                                                                             \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (n), false, __FILE__, __LINE__))
+#define Array_Reserve(array, n)                                                                                 \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (n), false, Get_Source_Code_Location()))
 
-#define Array_Insert(a, i, value)                                                                                                                                   \
-    (*((void **)&(a)->items) = Array_Grow(Array_Header_Cast(a), (a)->items, Array_Item_Size(a), Array_Item_Align(a), (a)->count + 1, false, __FILE__, __LINE__),    \
-    Mem_Move((a)->items + (i), (a)->items + i - 1, ((a)->count - (i)) * Array_Item_Size(a)),                                                                        \
-    (a)->items[(i)] = (value),                                                                                                                                      \
-    (a)->count += 1)
+#define Array_Insert(array, index, value)                                                                                                   \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + 1, false, Get_Source_Code_Location()),     \
+    Mem_Move((array)->items + (index), (array)->items + (index) - 1, ((array)->count - (index)) * Array_Item_Size(array)),                  \
+    (array)->items[(index)] = (value),                                                                                                      \
+    (array)->count += 1)
 
-#define Array_Remove(a, i, n)                                                                               \
-    do {                                                                                                    \
-        ASSERT((0 <= (i) && (i) < (a)->count) && (0 <= (n) && (n) <= (a)->count - (i)));                    \
-        Mem_Move((a)->items + (i), (a)->items + (i) + (n), ((a)->count - (i) - (n)) * Array_Item_Size(a));  \
-        (a)->count -= (n);                                                                                  \
+
+// TODO this could be a function.
+#define Array_Remove(array, index, n)                                                                                                   \
+    do {                                                                                                                                \
+        ASSERT((0 <= (index) && (index) < (array)->count) && (0 <= (n) && (n) <= (array)->count - (index)));                            \
+        Mem_Move((array)->items + (index), (array)->items + (index) + (n), ((array)->count - (index) - (n)) * Array_Item_Size(array));  \
+        (array)->count -= (n);                                                                                                          \
     } while(0)
 
 // Dose the full swap, so if you add +1 to the count, the item will return.
@@ -720,7 +797,7 @@ void Array_Shift(Array_Header *header, void *array, u64 item_size, u64 from_inde
 
 // u64 index = it - array->items;
 #define Array_For_Each(type, it, array)                                             \
-    for (type *it = (array)->items; it < (array)->items + (array)->count; ++it)
+    for (type *it = (array)->items; it < (array)->items + (array)->count; it++)
 
 
 #define Array_Free(array)                   \
@@ -752,6 +829,8 @@ void Array_Shift(Array_Header *header, void *array, u64 item_size, u64 from_inde
 // ===================================================
 //                Dynamic HashMap
 // ===================================================
+
+// TODO finish this.
 
 //
 // Example Array:
@@ -861,15 +940,13 @@ void *_Map_Put                          (Map_Header *header, void *kv_array, voi
 //                      Misc
 // ===================================================
 
-// this is just useful
-typedef struct {
-    _Array_Header_;
-    String *items;
-} String_Array;
+// these are just useful, dont have to make these every single project.
+typedef Array(String) String_Array;
+typedef Array(s64)    Int_Array;
 
 
-
-String Read_Entire_File(Arena *arena, String filename);
+// will return malloc'd string if arena is NULL,
+String Read_Entire_File(String filename, Arena *arena);
 
 // only works on unix.
 u64 nanoseconds_since_unspecified_epoch(void);
@@ -881,6 +958,10 @@ bool check_if_file_exists(const char *filepath);
 // ===================================================
 //                 Debug Helpers
 // ===================================================
+
+// extremely annoyed that we have to pass pointers in here.
+//
+// _Generic() is just terrible.
 
 const char *print_s64   (void *_x);
 const char *print_u64   (void *_x);
@@ -942,11 +1023,26 @@ const char *print_string(void *_x);
 #include <stdarg.h>
 
 
+
+// ===================================================
+//               Source Code Location
+// ===================================================
+
+bool source_code_location_eq(Source_Code_Location a, Source_Code_Location b) {
+    if (a.line != b.line) return false;
+    // this should work, the pointer would be the same.
+    if (a.file != b.file) return false;
+    // strcmp(a.file, b.file) == 0;
+    return true;
+}
+
+
+
 // ===================================================
 //        Useful Memory Manipulation Functions
 // ===================================================
 
-b32 Mem_Is_Aligned(void *ptr, u64 alignment) {
+bool Mem_Is_Aligned(void *ptr, u64 alignment) {
     static_assert(sizeof(u64) >= sizeof(void*), "doing math with pointers");
     return ((u64)ptr) % alignment == 0;
 }
@@ -1016,14 +1112,14 @@ internal void Arena_Internal_Free_Region(Region *region) {
 
 // inline because there is really nothing in this function.
 // just some funny casts, and a call to Mem_Set()
-internal inline void *Arena_Internal_Get_New_Memory_At_Last_Region(Arena *arena, u64 size_in_bytes, u64 alignment, b32 clear_to_zero) {
+internal inline void *Arena_Internal_Get_New_Memory_At_Last_Region(Arena *arena, u64 size_in_bytes, u64 alignment, bool clear_to_zero) {
     u64 aligned_ptr_u64 = Mem_Align_Forward(Ptr_To_U64(arena->last->data + arena->last->count_in_bytes), alignment);
     // u64 aligned_ptr_u64 = Ptr_To_U64(arena->last->data + arena->last->count_in_bytes);
 
     s64 how_far_forward = Mem_Ptr_Diff(U64_To_Ptr(aligned_ptr_u64), arena->last->data + arena->last->count_in_bytes);
     ASSERT(how_far_forward >= 0);
 
-    // lets hope this dosent happen.
+    // lets hope this doesn't happen.
     if (arena->last->count_in_bytes + how_far_forward + size_in_bytes > arena->last->capacity_in_bytes) {
         return NULL;
     }
@@ -1037,7 +1133,7 @@ internal inline void *Arena_Internal_Get_New_Memory_At_Last_Region(Arena *arena,
 }
 
 
-void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line) {
+void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_Code_Location source_code_location) {
     // TODO track allocations.
 
     u64 default_size = (arena->minimum_allocation_size != 0) ? arena->minimum_allocation_size : ARENA_REGION_DEFAULT_CAPACITY;
@@ -1049,19 +1145,19 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const c
     // if the arena currently holds no memory
     if (arena->last == NULL) {
         if (arena->first != NULL) {
-            ARENA_PANIC(file, line, "arena->first != NULL, only these library functions should touch the insides of an arena.");
+            ARENA_PANIC(source_code_location, "arena->first != NULL, only these library functions should touch the insides of an arena.");
             return NULL;
         }
 
         if (arena->panic_when_trying_to_allocate_new_page) {
-            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, but that has been disallowed. (when there was no memory to begin with.)");
+            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, but that has been disallowed. (when there was no memory to begin with.)");
             return NULL;
         }
 
         arena->last = Arena_Internal_New_Region(to_alloc_if_no_room);
         if (arena->last == NULL) {
             if (arena->dont_panic_when_allocation_failure) return NULL;
-            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, got null. (when there was no memory to begin with.)");
+            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, got null. (when there was no memory to begin with.)");
             return NULL;
         }
 
@@ -1069,7 +1165,7 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const c
 
         void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
         if (!new_memory) {
-            ARENA_PANIC(file, line, "new_memory from internal allocator returned null wtf.");
+            ARENA_PANIC(source_code_location, "new_memory from internal allocator returned null wtf.");
         }
         return new_memory;
     }
@@ -1088,7 +1184,7 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const c
         // if there is space alloc
         void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
         if (!new_memory) {
-            ARENA_PANIC(file, line, "new_memory from internal allocator returned null wtf.");
+            ARENA_PANIC(source_code_location, "new_memory from internal allocator returned null wtf.");
         }
         return new_memory;
 
@@ -1096,12 +1192,12 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const c
         // we need a new region
 
         if (arena->last->next != NULL) {
-            ARENA_PANIC(file, line, "arena->last->next != NULL, only these library functions should touch the insides of an arena, and they should never produce this state.");
+            ARENA_PANIC(source_code_location, "arena->last->next != NULL, only these library functions should touch the insides of an arena, and they should never produce this state.");
             return NULL;
         }
 
         if (arena->panic_when_trying_to_allocate_new_page) {
-            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, but that has been disallowed.");
+            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, but that has been disallowed.");
             return NULL;
         }
 
@@ -1110,14 +1206,14 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const c
         arena->last = Arena_Internal_New_Region(to_alloc_if_no_room);
         if (arena->last == NULL) {
             if (arena->dont_panic_when_allocation_failure) return NULL;
-            ARENA_PANIC(file, line, "Arena_alloc: attempted to allocate new memory, got null.");
+            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, got null.");
         }
         last_last->next = arena->last;
 
 
         void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
         if (!new_memory) {
-            ARENA_PANIC(file, line, "new_memory from internal allocator returned null wtf.");
+            ARENA_PANIC(source_code_location, "new_memory from internal allocator returned null wtf.");
         }
         return new_memory;
     }
@@ -1140,7 +1236,7 @@ void Arena_Set_To_Mark(Arena *arena, Arena_Mark mark) {
 }
 
 
-void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, const char *file, s32 line) {
+void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, Source_Code_Location source_code_location) {
     if (arena->first != NULL) return;
 
     u64 tmp_min_alloc_size = arena->minimum_allocation_size;
@@ -1149,20 +1245,20 @@ void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, co
     _Arena_Alloc(
         arena, 0,
         (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = false, },
-        file, line
+        source_code_location
     );
 
     arena->minimum_allocation_size = tmp_min_alloc_size;
 }
 
 
-void _Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, const char *file, s32 line) {
+void _Arena_Add_Buffer_As_Storage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, Source_Code_Location source_code_location) {
     if (buffer == NULL) {
-        ARENA_PANIC(file, line, "Arena_Add_Buffer_As_Storeage_Space: buffer != NULL, why did you pass this to us.");
+        ARENA_PANIC(source_code_location, "Arena_Add_Buffer_As_Storeage_Space: buffer != NULL, why did you pass this to us.");
         return;
     }
     if (buffer_size_in_bytes <= sizeof(Region)) {
-        ARENA_PANIC(file, line, "Arena_Add_Buffer_As_Storeage_Space: buffer_size_in_bytes <= sizeof(Region), The passed in buffer must be big enough to contain the Region, preferably much bigger");
+        ARENA_PANIC(source_code_location, "Arena_Add_Buffer_As_Storeage_Space: buffer_size_in_bytes <= sizeof(Region), The passed in buffer must be big enough to contain the Region, preferably much bigger");
         return;
     }
 
@@ -1177,7 +1273,7 @@ void _Arena_Add_Buffer_As_Storeage_Space(Arena *arena, void *buffer, u64 buffer_
 
     if (arena->last == NULL) {
         if (arena->first != NULL) {
-            ARENA_PANIC(file, line, "Arena_Add_Buffer_As_Storeage_Space: arena->first != NULL, something went wrong internaly");
+            ARENA_PANIC(source_code_location, "Arena_Add_Buffer_As_Storeage_Space: arena->first != NULL, when arena->last == NULL, something went wrong internally");
         }
         arena->first = new_region;
         arena->last  = new_region;
@@ -1207,7 +1303,7 @@ const char *Arena_sprintf(Arena *arena, const char *format, ...) {
 
     if (formatted_size < 0) {
         // TODO ? accept file and line here? i never use this function anyway...
-        ARENA_PANIC(__FILE__, __LINE__, "Arena_sprintf: format was not successful");
+        ARENA_PANIC(Get_Source_Code_Location(), "Arena_sprintf: format was not successful");
         return NULL;
     }
 
@@ -1228,7 +1324,7 @@ const char *Arena_sprintf(Arena *arena, const char *format, ...) {
 
         // only happens when Arena_Alloc either returns null because it was
         // allowed to return null, or it panic'd (and the panic function was
-        // replaced with something that dosent abort), either way the user
+        // replaced with something that doesn't abort), either way the user
         // of this function will expect this to maybe be null.
         if (!buf) return NULL;
 
@@ -1286,7 +1382,7 @@ Arena *Pool_Get(Arena_Pool *pool) {
             return new_arena;
         }
 
-        Atomic(b32) *lock = &pool->creating_new_pool_in_chain_lock;
+        Atomic(bool) *lock = &pool->creating_new_pool_in_chain_lock;
         Atomic_Capture_Lock(lock) {
             if (!pool->next_pool) {
                 pool->next_pool = (Arena_Pool*)BESTED_MALLOC(sizeof(Arena_Pool));
@@ -1312,7 +1408,7 @@ void Pool_Release(Arena_Pool *pool, Arena *to_release) {
             return;
         }
 
-        Atomic(b32) *lock = &pool->creating_new_pool_in_chain_lock;
+        Atomic(bool) *lock = &pool->creating_new_pool_in_chain_lock;
         Atomic_Capture_Lock(lock) {
             pool = pool->next_pool;
         }
@@ -1342,6 +1438,15 @@ void Pool_Free_Arenas(Arena_Pool *pool) {
         BESTED_FREE(pool);
         pool = next_pool;
     }
+
+    // clear this entire struct, make ready to use again,
+    // it should be ready to use again
+    //
+    // removes settings from all arena's
+    //
+    // probably should change this behaviour if pool ever gets
+    // any settings, like the arena has
+    Mem_Zero_Struct(original_pool);
 }
 
 
@@ -1350,7 +1455,7 @@ void Pool_Free_Arenas(Arena_Pool *pool) {
 //                       String
 // ===================================================
 
-b32 Is_Whitespace(char c) {
+bool Is_Whitespace(char c) {
     if (c == ' ' ) return true;
     if (c == '\f') return true;
     if (c == '\n') return true;
@@ -1410,22 +1515,22 @@ void String_To_Upper(String *s) {
     for (u64 i = 0; i < s->length; i++) s->data[i] = To_Upper(s->data[i]);
 }
 
-b32 String_Eq(String s1, String s2) {
+bool String_Eq(String s1, String s2) {
     if (s1.length != s2.length) return false;
     return Mem_Eq(s1.data, s2.data, s1.length);
 }
 
-b32 String_Starts_With(String s, String prefix) {
+bool String_Starts_With(String s, String prefix) {
     if (s.length < prefix.length) return false;
     return Mem_Eq(s.data, prefix.data, prefix.length);
 }
 
-b32 String_Ends_With(String s, String postfix) {
+bool String_Ends_With(String s, String postfix) {
     if (s.length < postfix.length) return false;
     return Mem_Eq(s.data + s.length - postfix.length, postfix.data, postfix.length);
 }
 
-b32 String_Contains_Char(String s, char c) {
+bool String_Contains_Char(String s, char c) {
     for (u64 i = 0; i < s.length; i++) {
         if (s.data[i] == c) return true;
     }
@@ -1457,7 +1562,7 @@ s64 String_Find_Index_Of(String s, String needle) {
         // check if not enough room for needle
         if (s.length - index < needle.length) return -1;
 
-        b32 flag = true;
+        bool flag = true;
         for (u64 i = 1; i < needle.length; i++) {
             if (s.data[index+i] != needle.data[i]) {
                 flag = false;
@@ -1499,11 +1604,19 @@ String String_get_single_line(String s, u64 index) {
 }
 
 void   String_Advance (String *s, s64 count) {
-    s->data   += count;
-    s->length -= count;
+    // don't do anything to null strings.
+    if (s->data == NULL) return;
+    // don't go over the length
+    if ((s64)s->length < count) {
+        String_Advance(s, s->length); // this'll get compiled out.
+    } else {
+        s->data   += count;
+        s->length -= count;
+    }
 }
 String String_Advanced(String s, s64 count) {
-    return (String){.data = s.data + count, .length = s.length - count};
+    String_Advance(&s, count);
+    return s;
 }
 
 String String_Trim_Right(String s) {
@@ -1542,9 +1655,9 @@ String String_Remove_Extention(String s) {
 
 
 String String_Get_Next_Line(String *parseing, u64 *line_num, String_Get_Next_Line_Flag flags) {
-    b32 remove_comments = Flag_Exists(flags, SGNL_Remove_Comments);
-    b32 trim            = Flag_Exists(flags, SGNL_Trim);
-    b32 skip_empty      = Flag_Exists(flags, SGNL_Skip_Empty);
+    bool remove_comments = Flag_Exists(flags, SGNL_Remove_Comments);
+    bool trim            = Flag_Exists(flags, SGNL_Trim);
+    bool skip_empty      = Flag_Exists(flags, SGNL_Skip_Empty);
 
     String next_line = *parseing;
 
@@ -1724,7 +1837,7 @@ void String_Builder_Clear(String_Builder *sb) {
     sb->current_segment  = &sb->first_segment_holder;
 }
 
-void String_Builder_Ptr_And_Size(String_Builder *sb, char *ptr, u64 size) {
+void String_Builder_Ptr_And_Size(String_Builder *sb, void *ptr, u64 size) {
     if (size == 0) return;
 
     Character_Buffer *buffer = String_Builder_Internal_Maybe_Expand_To_Fit(sb, size);
@@ -1857,55 +1970,66 @@ void String_Builder_Free(String_Builder *sb) {
 //                Dynamic Arrays
 // ===================================================
 
-void *Array_Grow(Array_Header *header, void *array, u64 item_size, u64 item_align, u64 count, b32 clear_to_zero, const char *file, s32 line) {
-    if (count > header->capacity) {
-        header->capacity = header->capacity ? header->capacity * 2 : ARRAY_INITAL_CAPACITY;
-        while (header->capacity < count) header->capacity *= 2;
+void Array_Maybe_Grow(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 new_count, bool clear_to_zero, Source_Code_Location source_code_location) {
+    ASSERT(array); // would be kinda weird.
 
-        void *new_array;
-        if (header->allocator) {
+    // if the new count is less, we dont need to do anything. not even clear anything.
+    if (new_count <= array->count) return;
+
+    if (new_count > array->capacity) {
+        array->capacity = array->capacity ? array->capacity * 2 : ARRAY_INITAL_CAPACITY;
+        while (array->capacity < new_count) array->capacity *= 2;
+
+        void *new_array = NULL;
+        if (array->allocator) {
 
             // special case where the last thing to allocate was this current array,
             // in this case we dont need to do any Mem_Copy, just advance the count_in_bytes.
-            if (header->allocator->last) {
-                bool last_allocation_was_this_array = (header->allocator->last->data + header->allocator->last->count_in_bytes) - (header->count * item_size) == array;
+            if (array->allocator->last) {
+                bool last_allocation_was_this_array = (array->allocator->last->data + array->allocator->last->count_in_bytes) - (array->count * item_properties.item_size) == array->items;
                 if (last_allocation_was_this_array) {
-                    u64 number_of_new_elements = header->capacity - header->count;
-                    u64 new_amount_to_allocate = number_of_new_elements * item_size;
-                    bool new_array_can_fit_into_current_region = header->allocator->last->count_in_bytes + new_amount_to_allocate <= header->allocator->last->capacity_in_bytes;
+                    u64 number_of_new_elements = array->capacity - array->count;
+                    u64 new_amount_to_allocate = number_of_new_elements * item_properties.item_size;
+                    bool new_array_can_fit_into_current_region = array->allocator->last->count_in_bytes + new_amount_to_allocate <= array->allocator->last->capacity_in_bytes;
 
                     if (new_array_can_fit_into_current_region) {
-                        header->allocator->last->count_in_bytes += new_amount_to_allocate;
+                        // TODO maybe call this function, this is some dangerous manipulation.
+                        // Arena_Alloc(array->allocator, new_amount_to_allocate);
+                        array->allocator->last->count_in_bytes += new_amount_to_allocate;
                         goto skip_allocation;
                     }
                 }
             }
 
-            void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line);
-
+            // need to do this, need to set file and line properly.
+            //
+            // void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line);
             new_array = _Arena_Alloc(
-                header->allocator, item_size * header->capacity,
-                (Arena_Alloc_Opt){.alignment = item_align, .clear_to_zero = false, },
-                file, line
+                array->allocator, item_properties.item_size * array->capacity,
+                (Arena_Alloc_Opt){.alignment = item_properties.item_align, .clear_to_zero = false, },
+                source_code_location
             );
-            Mem_Copy(new_array, array, item_size * header->count);
+            Mem_Copy(new_array, array->items, item_properties.item_size * array->count);
         } else {
-            new_array = BESTED_ALIGNED_ALLOC(item_align, item_size * header->capacity);
-            Mem_Copy(new_array, array, item_size * header->count);
-            BESTED_FREE(array);
+            new_array = BESTED_ALIGNED_ALLOC(item_properties.item_align, item_properties.item_size * array->capacity);
+            Mem_Copy(new_array, array->items, item_properties.item_size * array->count);
+            BESTED_FREE(array->items);
         }
 
-        array = new_array;
+        array->items = new_array;
     }
 
 skip_allocation:
-    if (clear_to_zero) Mem_Zero(((u8*)array) + (item_size * header->count), item_size * count);
-    return array;
+    if (clear_to_zero) {
+        u64 new_to_add = new_count - array->count;
+        Mem_Zero((u8*)array->items + (item_properties.item_size * array->count), item_properties.item_size * new_to_add);
+    }
 }
 
-void Array_Shift(Array_Header *header, void *array, u64 item_size, u64 from_index) {
-    Mem_Move(array, (u8*)array + from_index, (header->count - from_index) * item_size);
-    header->count -= from_index;
+
+void Array_Shift(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 from_index) {
+    Mem_Move(array->items, (u8*)array->items + from_index, (array->count - from_index) * item_properties.item_size);
+    array->count -= from_index;
 }
 
 
@@ -2063,14 +2187,16 @@ void *_Map_Put(Map_Header *header, void *kv_array, void *key, u64 key_size, void
 //             Some Common Functions
 // ===================================================
 
-String Read_Entire_File(Arena *arena, String filename) {
-    // this might init a page that is to small to contain the file.
-    // But I work with Strings now. not c_strings
-    Arena_Mark mark = Arena_Get_Mark(arena);
-        FILE *file = fopen(String_To_C_Str(arena, filename), "rb");
-    Arena_Set_To_Mark(arena, mark);
-
+String Read_Entire_File(String filename, Arena *arena) {
     String result = ZEROED;
+
+    // pretty sure PATHMAX is less than TEMP_STRING_TO_C_STR_MAX_LENGTH
+    if (filename.length >= TEMP_STRING_TO_C_STR_MAX_LENGTH) {
+        fprintf(stderr, "filename length is bigger than temp_String_To_C_Str() storage, was %zu, witch is probably bigger than PATH_MAX on a lot of OS's", filename.length);
+        return result;
+    }
+
+    FILE *file = fopen(temp_String_To_C_Str(filename), "rb");
 
     if (file) {
         fseek(file, 0, SEEK_END);
@@ -2079,7 +2205,11 @@ String Read_Entire_File(Arena *arena, String filename) {
 
         if (length >= 0) {
             result.length = (u64)length;
-            result.data = (char*) Arena_Alloc(arena, result.length+1, .clear_to_zero = false);
+            if (arena) {
+                result.data = (char*) Arena_Alloc(arena, result.length+1, .clear_to_zero = false);
+            } else {
+                result.data = BESTED_MALLOC(result.length+1);
+            }
             // result.data = (char*) Arena_Alloc_Clear(arena, result.length+1, false);
             if (result.data) {
                 u64 read_bytes = fread(result.data, 1, result.length, file);
@@ -2097,7 +2227,7 @@ String Read_Entire_File(Arena *arena, String filename) {
 
 
 #ifdef _WIN32
-    #error "We dont support windows currently, or at least not this one function. just delete it if you need to use the rest of this library"
+    #warning "We dont support windows currently, or at least not nanoseconds_since_unspecified_epoch(), returns a dummy value."
 #else
     #include <unistd.h>
     #include <time.h>
@@ -2119,7 +2249,8 @@ u64 nanoseconds_since_unspecified_epoch(void) {
 
     return NANOSECONDS_PER_SECOND * ts.tv_sec + ts.tv_nsec;
 #else
-    #error "Sorry, haven't implemented this yet."
+    #warning "We dont support windows currently, or at least not nanoseconds_since_unspecified_epoch(), returns a dummy value."
+    return 538008;
 #endif
 }
 

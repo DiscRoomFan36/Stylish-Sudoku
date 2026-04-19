@@ -139,10 +139,7 @@ internal void mkdir_if_not_exists(const char *dirpath) {
 int main(void) {
     srand(time(NULL));
 
-    typedef struct {
-        _Array_Header_;
-        Sudoku_Digit_Grid *items;
-    } Sudoku_Digit_Grid_Array;
+    typedef Array(Sudoku_Digit_Grid) Sudoku_Digit_Grid_Array;
 
     Sudoku_Digit_Grid_Array sudoku_array = ZEROED;
 

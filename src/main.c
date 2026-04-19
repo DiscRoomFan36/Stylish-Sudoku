@@ -21,11 +21,6 @@
 
 
 
-typedef struct {
-    _Array_Header_;
-    s64 *items;
-} Int_Array;
-
 // returns -1 if its not in the array
 internal s64 index_in_array(Int_Array *array, s64 to_find) {
     for (u64 i = 0; i < array->count; i++) {
@@ -35,32 +30,7 @@ internal s64 index_in_array(Int_Array *array, s64 to_find) {
 }
 
 
-
-typedef struct {
-    _Array_Header_;
-    Vector2 *items;
-} Vector2_Array;
-
-
-
-typedef struct {
-    const char *file;
-    s32 line;
-} Source_Code_Location;
-
-// printf helpers
-#define SCL_Fmt         "%s:%d:"
-#define SCL_Arg(scl)    scl.file, scl.line
-
-#define Get_Source_Code_Location() ( (Source_Code_Location){ .file = __FILE__, .line = __LINE__ } )
-
-bool source_code_location_eq(Source_Code_Location a, Source_Code_Location b) {
-    if (a.line != b.line) return false;
-    // this should work, the pointer would be the same.
-    if (a.file != b.file) return false;
-    return true;
-}
-
+typedef Array(Vector2) Vector2_Array;
 
 
 
@@ -195,7 +165,7 @@ void init_context(void) {
         // still less than 1 javascript object.
         local_persist u8 buffers[NUM_POOL_ARENAS][1 * MEGABYTE];
         for (u32 i = 0; i < NUM_POOL_ARENAS; i++) {
-            Arena_Add_Buffer_As_Storeage_Space(&context->pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
+            Arena_Add_Buffer_As_Storage_Space(&context->pool.arena_pool[i], buffers[i], sizeof(buffers[i]));
         }
 
         context->temporary_allocator = Pool_Get(&context->pool);
@@ -618,10 +588,7 @@ typedef struct {
     Arena *allocator;
 } UI_Button_Data;
 
-typedef struct {
-    _Array_Header_;
-    UI_Button_Data *items;
-} UI_Button_Data_Array;
+typedef Array(UI_Button_Data) UI_Button_Data_Array;
 
 // TODO get an allocator with pool_get()
 global_variable UI_Button_Data_Array global_ui_button_data_array = ZEROED;
@@ -641,7 +608,7 @@ UI_Button_Data *get_ui_button_data(String text, Source_Code_Location source_code
     }
 
     // make something new.
-    UI_Button_Data *new_button_data = Array_Add_Clear(&global_ui_button_data_array, 1);
+    UI_Button_Data *new_button_data = Array_Add(&global_ui_button_data_array, 1, true);
 
     new_button_data->allocator = Scratch_Get();
 

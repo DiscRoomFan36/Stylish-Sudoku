@@ -80,10 +80,7 @@ typedef struct {
 
 } Sudoku_Grid;
 
-typedef struct {
-    _Array_Header_;
-    Sudoku_Grid *items;
-} Sudoku_Grid_Array;
+typedef Array(Sudoku_Grid) Sudoku_Grid_Array;
 
 
 
@@ -97,10 +94,7 @@ typedef struct {
 
 } Selected_Animation;
 
-typedef struct {
-    _Array_Header_;
-    Selected_Animation *items;
-} Selected_Animation_Array;
+typedef Array(Selected_Animation) Selected_Animation_Array;
 
 
 

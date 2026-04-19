@@ -33,10 +33,7 @@ typedef struct {
 
 } Logged_Message;
 
-typedef struct {
-    _Array_Header_;
-    Logged_Message *items;
-} Logged_Message_Array;
+typedef Array(Logged_Message) Logged_Message_Array;
 
 
 

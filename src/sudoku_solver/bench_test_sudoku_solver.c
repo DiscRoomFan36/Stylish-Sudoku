@@ -10,11 +10,7 @@
 // helper to construct sudoku grids.
 Input_Sudoku_Puzzle sudoku_string_to_input_puzzle(const char *sudoku_string);
 
-
-typedef struct {
-    _Array_Header_;
-    Input_Sudoku_Puzzle *items;
-} Input_Sudoku_Puzzle_Array;
+typedef Array(Input_Sudoku_Puzzle) Input_Sudoku_Puzzle_Array;
 
 
 
@@ -171,7 +167,7 @@ void bench_test_many_sudoku(void) {
 
         Arena_Clear(&a);
 
-        String entire_file = Read_Entire_File(&a, filepath);
+        String entire_file = Read_Entire_File(filepath, &a);
         assert(entire_file.length >= 9*9); // expect at least some data
 
         Input_Sudoku_Puzzle_Array input_array = ZEROED;

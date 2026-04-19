@@ -4,7 +4,7 @@
 // Author   - Fletcher M
 //
 // Created  - 19/01/26
-// Modified - 26/03/26
+// Modified - 17/04/26
 //
 //
 // TEST_MA.h is a C testing library, Simply create some test,
@@ -185,6 +185,15 @@ typedef struct TEST_MA_Add_Test_Opt {
     // WARNING: test framework will not catch crashes
     // WARNING: test framework will not catch inf loops. (and timeout dose not work)
     bool run_without_sandbox;
+
+    // if set to true, will pass the test if the test
+    // runner crashes, otherwise will fail.
+    //
+    // TEST_FAIL() will still fail the test, its just that
+    // returning from the function without crashing is incorrect.
+    //
+    // not a good idea to run this one without the sandbox.
+    bool expect_crash;
 } TEST_MA_Add_Test_Opt;
 
 //
@@ -487,6 +496,19 @@ void TEST_MA_internal_test_fail(const char *reason, const char *file, int line);
 
 
 #define TEST_MA_ARRAY_LEN(arr) (sizeof(arr) / sizeof(arr[0]))
+
+
+// I really hate c++ sometimes
+#ifdef __cplusplus
+    // this allows c++ to do value initialization,
+    // witch is spiritually the same thing.
+    //
+    // also c++ complains if there is only 1 zero.
+    #define TEST_MA_ZEROED { /* Imagine there was a zero here */ }
+#else
+    // pretty sure this zero is necessary in C
+    #define TEST_MA_ZEROED {0}
+#endif
 
 
 
@@ -846,8 +868,18 @@ TEST_MA_internal void TEST_MA_internal_run_one_test(size_t test_index) {
                 // @Leak we could keep track of things like this, but meh.
                 to_test->reason_for_test_failure = strdup(buf);
             } else {
-                to_test->reason_for_test_failure = "UNKNOWN: Test did not communicate with test handler, it probably crashed.";
+                if (to_test->opt.expect_crash) {
+                    // it crashed, thats what we expected.
+                    to_test->test_failed = false;
+                } else {
+                    to_test->reason_for_test_failure = "UNKNOWN: Test did not communicate with test handler, it probably crashed.";
+                }
             }
+        }
+    } else {
+        if (to_test->opt.expect_crash) {
+            to_test->test_failed = true;
+            to_test->reason_for_test_failure = "NO_CRASH: Test did not crash and exited successfully, witch isn't what you expected to happen.";
         }
     }
 
@@ -899,7 +931,7 @@ TEST_MA_internal const char *TEST_MA_internal_test_index_to_test_number_text(siz
     int test_number_width = TEST_MA_internal_int_log_10(TEST_MA_context.tests_count);
 
     // we are going to be returning this buffer
-    TEST_MA_local_persist char test_number_text[32] = ZEROED;
+    TEST_MA_local_persist char test_number_text[32] = TEST_MA_ZEROED;
     snprintf(test_number_text, sizeof(test_number_text), "%*zu", test_number_width, real_test_index);
 
     return test_number_text;

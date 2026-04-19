@@ -9,11 +9,7 @@ typedef struct {
     Sound raylib_sound;
 } A_Sound;
 
-typedef struct {
-    _Array_Header_;
-    A_Sound *items;
-} A_Sound_Array;
-
+typedef Array(A_Sound) A_Sound_Array;
 
 
 internal void   init_sounds(void);
@@ -79,7 +75,7 @@ void play_sound(const char *_sound_name) {
 
     if (!found_sound) {
         // add a new sound
-        found_sound = Array_Add_Clear(&context->global_sound_array, 1);
+        found_sound = Array_Add(&context->global_sound_array, 1, true);
         found_sound->name = String_Duplicate(context->global_sound_array.allocator, sound_name, .null_terminate = true);
         found_sound->raylib_sound = LoadSound(temp_sprintf("assets/sound/"S_Fmt"", S_Arg(sound_name)));
         // LoadSoundAlias() use this to make copies to play at the same time.
