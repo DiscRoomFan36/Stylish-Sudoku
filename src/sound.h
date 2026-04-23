@@ -76,7 +76,7 @@ void play_sound(const char *_sound_name) {
     if (!found_sound) {
         // add a new sound
         found_sound = Array_Add(&context->global_sound_array, 1, true);
-        found_sound->name = String_Duplicate(context->global_sound_array.allocator, sound_name, .null_terminate = true);
+        found_sound->name = String_Duplicate(sound_name, .allocator = context->global_sound_array.allocator, .null_terminate = true);
         found_sound->raylib_sound = LoadSound(temp_sprintf("assets/sound/"S_Fmt"", S_Arg(sound_name)));
         // LoadSoundAlias() use this to make copies to play at the same time.
 

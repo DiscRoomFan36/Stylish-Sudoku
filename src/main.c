@@ -612,7 +612,7 @@ UI_Button_Data *get_ui_button_data(String text, Source_Code_Location source_code
 
     new_button_data->allocator = Scratch_Get();
 
-    new_button_data->text = String_Duplicate(new_button_data->allocator, text, .null_terminate = true);
+    new_button_data->text = String_Duplicate(text, .allocator = new_button_data->allocator, .null_terminate = true);
     new_button_data->text_c_str = text.data;
 
     new_button_data->source_code_location = source_code_location;

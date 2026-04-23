@@ -137,7 +137,7 @@ void log_impl(Log_Level level, const char *_message, Source_Code_Location source
     log.allocator     = Scratch_Get(),
 
     log.level         = level;
-    log.message       = String_Duplicate(log.allocator, message, .null_terminate = true);
+    log.message       = String_Duplicate(message, .allocator = log.allocator, .null_terminate = true);
     log.message_c_str = log.message.data;
 
     log.source_code_location = source_code_location;
@@ -152,35 +152,6 @@ void log_impl(Log_Level level, const char *_message, Source_Code_Location source
 
     Array_Append(&context->logged_messages_to_display, log);
 }
-
-
-
-// uses temporary allocator
-//
-// no strings are harmed, or null terminated,
-// so do not put the result into strlen(),
-// it will measure the whole of the array.
-internal String_Array string_split_by(String input, const char *split_by) {
-    String needle = S(split_by);
-
-    String_Array result = { .allocator = get_temporary_allocator() };
-
-    while (true) {
-        s64 index = String_Find_Index_Of(input, needle);
-        if (index == -1) {
-            Array_Append(&result, input);
-            break;
-        }
-
-        String advanced = String_Advanced(input, index + needle.length);
-        input.length = index;
-        Array_Append(&result, input);
-        input = advanced;
-    }
-
-    return result;
-}
-
 
 
 
@@ -211,7 +182,8 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
 
 
     // we'll do something special with these later.
-    String_Array new_line_separated_text_array = string_split_by(text, "\n");
+    String_Array new_line_separated_text_array = { .allocator = get_temporary_allocator() };
+    String_Split_By(text, S("\n"), &new_line_separated_text_array);
 
     for (u32 k = 0; k < new_line_separated_text_array.count; k++) {
         String text_without_new_lines = new_line_separated_text_array.items[k];
@@ -220,7 +192,8 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
         //
         // if two spaces are right next to each other,
         // it dose not matter, we will stick them together anyway
-        String_Array words = string_split_by(text_without_new_lines, " ");
+        String_Array words = { .allocator = get_temporary_allocator() };
+        String_Split_By(text_without_new_lines, S(" "), &words);
         ASSERT(words.count > 0); // TODO handle empty lines. maybe just skip to the end?
 
         // if (IsKeyPressed(KEY_A)) debug_break();

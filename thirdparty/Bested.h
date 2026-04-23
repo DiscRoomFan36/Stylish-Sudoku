@@ -4,13 +4,58 @@
 // Author   - Fletcher M
 //
 // Created  - 04/08/25
-// Modified - 19/04/26
+// Modified - 22/04/26
 //
-// Version  - 0.1.7
+// Version  - 1.2.0
 //
 // Make sure to...
 //      #define BESTED_IMPLEMENTATION
 // ...somewhere in your project
+
+
+
+//
+//                        A Note On Namespaceing
+//           (aka, why the Bested.h library is not namespaced)
+//
+// The normal way single header librarys in c are namespaced is by putting the
+// name of the library at the start of all function and macros, like stb_xxx
+// or in this case Bested_xxx.
+//
+// Some librarys even provide macros to strip the prefix of the functions and
+// macros, for ease of use, for example the nob.h library has a
+// NOB_STRIP_PREFIXES define, that turns functions like nob_cmd_append() into
+// cmd_append().
+//
+// So why doesn't this single header library do the same thing?
+//
+// Well... its for a bit of a silly reason, my editor (VSCode, dont laugh),
+// has a feature where if you hover over a identifier, it shows the definition
+// of that identifier, as well as the comments above the identifier. this is
+// extremely useful for when I'm inspecing my code.
+//
+// So if I where to pull the trick of having a BESTED_STRIP_PREFIXES (witch I
+// would use all the time, as Bested.h is suppost to be for my ease of use)
+// all of my cool comments, and function declarations in my tiny editor window
+// would just be gone, and the feature would just point to the macro that
+// strips the prefixes.
+//
+// A slight drop in developer ergonomics, that is compounded by the fact that
+// most "go to definition" features would also be messed up by this.
+// (Taking you to the macro again)
+//
+// So this library dose not do namespaceing.
+//
+// If this library collides with another library, figure it out yourself. Im
+// not sacrificing my experience to deal with some theoretical namespace
+// collision. The only collision I have encountered is the Clamp() macro with
+// raylib's Clamp() function, witch was handled by #undef'ing Bested.h's
+// Clamp(), its not that big of a deal.
+//
+// Also this library is free to modify, just change the function signature
+// yourself.
+//
+
 
 
 #ifdef __cplusplus
@@ -431,7 +476,7 @@ typedef struct {
 
 
 // Allocate some memory in a arena, uses macro tricks to give you more options.
-void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_Code_Location source_code_location);
+void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_Code_Location caller_location);
 
 #define Arena_Alloc(arena, size, ...)      _Arena_Alloc((arena), (size), (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = true, __VA_ARGS__ }, Get_Source_Code_Location())
 #define Arena_Alloc_Struct(arena, type, ...)                         (type *)Arena_Alloc((arena), sizeof(type), .alignment = Alignof(type), ##__VA_ARGS__)
@@ -448,14 +493,14 @@ void Arena_Set_To_Mark(Arena *arena, Arena_Mark mark);
 // Will do nothing if the first page is already created.
 //
 // If 'first_page_size_in_bytes' is set to 0, the default is used, see 'minimum_allocation_size' comment above.
-void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, Source_Code_Location source_code_location);
+void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, Source_Code_Location caller_location);
 #define Arena_Initialize_First_Page(arena, first_page_size_in_bytes)        \
     _Arena_Initialize_First_Page((arena), (first_page_size_in_bytes), Get_Source_Code_Location());
 
 
 // Care has been taken, so that when Arena_free is called,
 // the pointer to the buffer provided here will not be free'd.
-void _Arena_Add_Buffer_As_Storage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, Source_Code_Location source_code_location);
+void _Arena_Add_Buffer_As_Storage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, Source_Code_Location caller_location);
 
 #define Arena_Add_Buffer_As_Storage_Space(arena, buffer, buffer_size_in_bytes)     \
     _Arena_Add_Buffer_As_Storage_Space((arena), (buffer), (buffer_size_in_bytes), Get_Source_Code_Location())
@@ -505,6 +550,448 @@ void Pool_Free_Arenas(Arena_Pool *pool);
 
 
 // ===================================================
+//                    Dynamic Array
+// ===================================================
+
+#ifndef ARRAY_INITAL_CAPACITY
+    #define ARRAY_INITAL_CAPACITY       32
+#endif
+
+
+//
+// Example:
+//   - make a variable
+//      Array(Foo) foo_array;
+//
+//   - make a type
+//      typedef Array(Bar) Bar_Array;
+//
+//   foo_array.items     = /* the array pointer */
+//   foo_array.count     = /* number of items in array */
+//   foo_array.capacity  = /* the capacity */
+//   foo_array.allocator = /* a settable arena allocator */
+//
+#define Array(Type)                         \
+    struct {                                \
+        Type *items;                        \
+        u64 count;                          \
+        u64 capacity;                       \
+        Arena *allocator;                   \
+    }
+
+
+// this struct shares the same shape as every array, so we can pass a pointer
+// to an array into a function, and still work normally with its contents.
+typedef struct {
+    void *items;
+    u64 count;
+    u64 capacity;
+    Arena *allocator;
+} Generic_Array;
+
+// so generic functions know how to manipulate the item pointer.
+typedef struct {
+    u64 item_size;
+    u64 item_align;
+} Array_Item_Type_Properties_Struct;
+
+
+#define Array_Item_Size(a)      sizeof(*(a)->items)
+#define Array_Item_Align(a)     Alignof(*(a)->items)
+#define Get_Item_Type_Properties(array) ( (Array_Item_Type_Properties_Struct){ Array_Item_Size(array), Array_Item_Align(array) } )
+
+// might increase the capacity of the array,
+// array will be able to hold at least count elements.
+void Array_Maybe_Grow(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 new_count, bool clear_to_zero, Source_Code_Location caller_location);
+
+// shifts the array left, why do i have this function?
+void Array_Shift(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 from_index);
+
+
+
+// add a single value
+//
+// could be a function, but would have to take a void* and those suck.
+// this is a macro so you dont have to make a reference every time you add something.
+#define Array_Append(array, value)                                                                                                          \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + 1, false, Get_Source_Code_Location()),     \
+    (array)->items[(array)->count++] = (value))
+
+#define Array_Add(array, n, zeroed)                                                                                                         \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + (n), zeroed, Get_Source_Code_Location()),  \
+    (array)->count += (n),                                                                                                                  \
+    &(array)->items[(array)->count - (n)])
+
+
+
+// make sure there is enough room to hold 'n' items, dose not increase count.
+#define Array_Reserve(array, n)                                                                                 \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (n), false, Get_Source_Code_Location()))
+
+#define Array_Insert(array, index, value)                                                                                                   \
+    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + 1, false, Get_Source_Code_Location()),     \
+    Mem_Move((array)->items + (index), (array)->items + (index) - 1, ((array)->count - (index)) * Array_Item_Size(array)),                  \
+    (array)->items[(index)] = (value),                                                                                                      \
+    (array)->count += 1)
+
+
+// TODO this could be a function.
+#define Array_Remove(array, index, n)                                                                                                   \
+    do {                                                                                                                                \
+        ASSERT((0 <= (index) && (index) < (array)->count) && (0 <= (n) && (n) <= (array)->count - (index)));                            \
+        Mem_Move((array)->items + (index), (array)->items + (index) + (n), ((array)->count - (index) - (n)) * Array_Item_Size(array));  \
+        (array)->count -= (n);                                                                                                          \
+    } while(0)
+
+// Dose the full swap, so if you add +1 to the count, the item will return.
+#define Array_Swap_And_Remove(array, index)                                 \
+    do {                                                                    \
+        ASSERT(0 <= (index) && (index) < (array)->count);                   \
+        if ((index) != (array)->count-1) {                                  \
+            Typeof(*(array)->items) tmp = (array)->items[(index)];          \
+            (array)->items[(index)] = (array)->items[(array)->count-1];     \
+            (array)->items[(array)->count-1] = tmp;                         \
+        }                                                                   \
+        (array)->count -= 1;                                                \
+    } while (0)
+
+
+// u64 index = it - array->items;
+#define Array_For_Each(it, array)                                             \
+    for (Typeof(*(array)->items) *it = (array)->items; it < (array)->items + (array)->count; it++)
+
+
+#define Array_Free(array)                   \
+    do {                                    \
+        if ((array)->allocator != NULL) {   \
+            fprintf(stderr, "=======================================================================================\n");       \
+            fprintf(stderr, "Are you serious?\n");                                                                              \
+            fprintf(stderr, "\n");                                                                                              \
+            fprintf(stderr, "Did you just attempt to free an array that was allready given an allocator?\n");                   \
+            fprintf(stderr, "Not just any allocator either, the only thing arrays accept are arena allocators.\n");             \
+            fprintf(stderr, "\n");                                                                                              \
+            fprintf(stderr, "You know I do this for you right?\n");                                                             \
+            fprintf(stderr, "I give you all these tools and this is what you do with it?\n");                                   \
+            fprintf(stderr, "Make a mistake that could have easily been ignored, look into this macro you just called.\n");     \
+            fprintf(stderr, "I can check if you have an allocator and just ignore it, but I wont.\n");                          \
+            fprintf(stderr, "\n");                                                                                              \
+            fprintf(stderr, "I'm not gonna even ASSERT(false).\n");                                                             \
+            fprintf(stderr, "I'm gonna let the segmentation falt, or the subtle memory bug do the talking for me.\n");          \
+            fprintf(stderr, "\n");                                                                                              \
+            fprintf(stderr, "I hope you have a terrible day.\n");                                                               \
+            fprintf(stderr, "=======================================================================================\n");       \
+        }                                   \
+        BESTED_FREE((array)->items);        \
+        (array)->items = NULL;              \
+    } while (0)
+
+
+
+// ===================================================
+//                Dynamic Hash Map
+// ===================================================
+
+// how big the hashmap grows on the first insert.
+#ifndef HASH_MAP_INITAL_CAPACITY
+    #define HASH_MAP_INITAL_CAPACITY 32
+#endif
+
+
+// returns a hash of the key,
+// size is the size of the key type.
+typedef u64  (*Hash_Function    )(void *key, u64 size);
+// checks equality between 2 keys. return true if equal.
+//
+// I know hash collisions are pretty unlikely, (if you use a
+// good hash function), but if two key hash's collide, it could
+// create the worst, most un-debuggable bug. you would spend
+// every night in terror.
+typedef bool (*Equality_Function)(void *key_a, void *key_b, u64 size);
+
+//
+// Example:
+//   - make a variable:
+//     Hash_Map(u32, f32) id_to_percent_map = ZEROED;
+//
+//   - make a type:
+//     typedef Hash_Map(String, Baz) Baz_Hash_Map;
+//
+//   id_to_percent_map.count         = /* number of entries in hash map        */
+//   id_to_percent_map.hash_function = /* hash function to use for the key     */
+//   id_to_percent_map.eq_function   = /* equality function to use for the key */
+//   id_to_percent_map.allocator     = /* a settable arena allocator           */
+//   id_to_percent_map.default_value = /* the default value when you use Hash_Map_Get_Or_Default() and the key is not in the map */
+//
+// ```
+//     Hash_Map(s32, String) hash_map = {
+//         .hash_function = NULL, // the default hash function just takes
+//         .eq_function   = NULL, // the bytes of your type and hash's it.
+//
+//         .default_value = S("NO VALUE"), // a default value
+//     };
+//
+//    Hash_Map(String, s32) reverse_map = {
+//         .hash_function = Hash_Map_Hash_String, // some hash functions are provided for the String types,
+//         .eq_function   = Hash_Map_Eq_String,   // (as well as 'const char *' type, but who cares about that one.)
+//
+//         .default_value = 0, // by default this is allready zero.
+//    };
+// ```
+//
+#define Hash_Map(Key_Type, Value_Type)      \
+    struct {                                \
+        struct {                            \
+            u64        hash;                \
+            Key_Type   key;                 \
+            Value_Type value;               \
+        } *entries;                         \
+                                            \
+        /* total number of alive items in hash_map */   \
+        u64 count;                          \
+        /* total number dead items in hash map */       \
+        u64 dead_count;                     \
+        u64 capacity;                       \
+                                            \
+        Hash_Function     hash_function;    \
+        Equality_Function eq_function;      \
+                                            \
+        /* Settable allocator */            \
+        Arena *allocator;                   \
+                                            \
+        /* Default value of new items */    \
+        Value_Type default_value;           \
+    }
+
+
+
+typedef struct {
+    u64 hash;
+    u8 key_and_value_data[];
+} Generic_Entry;
+
+typedef struct {
+    void *entries;
+
+    u64 count;
+    u64 dead_count;
+    u64 capacity;
+
+    Hash_Function     hash_function;
+    Equality_Function eq_function;
+
+    Arena *allocator;
+
+    // dont know how big this thing is. or where it is.
+    u8 default_value_maybe[];
+} Generic_Hash_Map;
+
+
+// These could probably be u32's,
+//
+// but im betting on llvm or whatever to compile this whole
+// thing into something better, also its not gonna cost much to
+// pass this thing as an argument.
+//
+// also every instance of this struct is a constant,
+// optimizers will have fun with that.
+typedef struct {
+    u64 key_size;
+    u64 value_size;
+
+    // used because predicting c struct packing
+    // is not something I want to do right now.
+    u64 entry_size;
+    u64 entry_alignment;
+
+    // key could be Aligned to 128-bit padding,
+    // this is so I dont have to care about that.
+    u64 key_offset_in_entry;
+    u64 value_offset_in_entry;
+
+    u64 default_value_offset_in_hash_map;
+
+} Hash_Map_Key_Value_Type_Properties;
+
+#define Get_Hash_Map_Type_Properties(hash_map)                                              \
+    ((Hash_Map_Key_Value_Type_Properties) {                                                 \
+        .key_size   = sizeof((hash_map)->entries->key),                                     \
+        .value_size = sizeof((hash_map)->entries->value),                                   \
+                                                                                            \
+        .entry_size      = sizeof (*(hash_map)->entries),                                   \
+        .entry_alignment = Alignof(*(hash_map)->entries),                                   \
+                                                                                            \
+        .key_offset_in_entry   = offsetof(Typeof(*(hash_map)->entries), key),               \
+        .value_offset_in_entry = offsetof(Typeof(*(hash_map)->entries), value),             \
+                                                                                            \
+        .default_value_offset_in_hash_map = offsetof(Typeof(*(hash_map)), default_value),   \
+    })
+
+
+// Returns a pointer to the value at with that key,
+//
+// may return null if key dose not exist.
+//
+// this function, (as well as many other hash_map functions),
+// rely on GNU compound statements, to provide the user the
+// ability to hand this function both:
+//     - a variable,
+//     - and a constant value.
+// you might have to turn some warnings off though.
+#define Hash_Map_Get(hash_map, the_key)                                 \
+    ({                                                                  \
+        Typeof((hash_map)->entries->key) key_on_stack = (the_key);      \
+        (Typeof((hash_map)->entries->value)*) Generic_Hash_Map_Get((Generic_Hash_Map*)(hash_map), &key_on_stack, Get_Hash_Map_Type_Properties(hash_map));   \
+    })
+
+// Returns a pointer to the value at with that key,
+//
+// creates a new default value item if the key is not in the map.
+//
+// always returns a valid pointer, will PANIC() otherwise.
+//
+// TODO what if the area the user gave us set "dont panic" mode?
+#define Hash_Map_Get_Or_Default(hash_map, the_key)                      \
+    ({                                                                  \
+        Typeof((hash_map)->entries->key) key_on_stack = (the_key);      \
+        (Typeof((hash_map)->entries->value)*) Generic_Hash_Map_Get_Or_Default((Generic_Hash_Map*)(hash_map), &key_on_stack, Get_Hash_Map_Type_Properties(hash_map), Get_Source_Code_Location());    \
+    })
+
+// the same as Hash_Map_Get_Or_Default() except it dose not set the default value.
+#define Hash_Map_Put(hash_map, the_key)                                 \
+    ({                                                                  \
+        Typeof((hash_map)->entries->key) key_on_stack = (the_key);      \
+        (Typeof((hash_map)->entries->value)*) Generic_Hash_Map_Put((Generic_Hash_Map*)(hash_map), &key_on_stack, Get_Hash_Map_Type_Properties(hash_map), Get_Source_Code_Location());   \
+    })
+
+
+// true if key is in map. returns bool type.
+#define Hash_Map_Contains(hash_map, the_key)                            \
+    ({                                                                  \
+        Typeof((hash_map)->entries->key) key_on_stack = (the_key);      \
+        Generic_Hash_Map_Contains((Generic_Hash_Map*)(hash_map), &key_on_stack, Get_Hash_Map_Type_Properties(hash_map));    \
+    })
+
+
+// remove a key and value from hash map,
+//
+// returns weather or not the key was in the hash map.
+#define Hash_Map_Remove(hash_map, the_key)                              \
+    ({                                                                  \
+        Typeof((hash_map)->entries->key) key_on_stack = (the_key);      \
+        Generic_Hash_Map_Remove((Generic_Hash_Map*)(hash_map), &key_on_stack, Get_Hash_Map_Type_Properties(hash_map));  \
+    })
+
+// remove an entry by pointer to the value,
+//
+// will ASSERT() that the value pointer is valid
+// (is one of this hash maps entries)
+//
+// returns true if it was successful.
+#define Hash_Map_Remove_By_Value(hash_map, value_ptr)                   \
+    Generic_Hash_Map_Remove_By_Value((Generic_Hash_Map*)(hash_map), value_ptr, Get_Hash_Map_Type_Properties(hash_map))
+
+
+// reserve space for num_to_reserver *TOTAL* items,
+//
+// may PANIC() if your computer runs out of memory.
+#define Hash_Map_Reserve(hash_map, num_to_reserve)                      \
+    Generic_Hash_Map_Reserve((Generic_Hash_Map*)(hash_map), (num_to_reserve), Get_Hash_Map_Type_Properties(hash_map), Get_Source_Code_Location())
+
+// clear the hash map, keep the memory.
+#define Hash_Map_Clear(hash_map)    Generic_Hash_Map_Clear((Generic_Hash_Map*)(hash_map), Get_Hash_Map_Type_Properties(hash_map))
+// free the memory used, only use if you haven't set an allocator.
+//
+// only free()'s the entries pointer,
+// you have to manage the other memory yourself.
+#define Hash_Map_Free(hash_map)     Generic_Hash_Map_Free((Generic_Hash_Map*)(hash_map))
+
+
+// return a pointer to the key for the value, please dont modify this.
+//
+// i could of just dereferenced this key, but
+// it would be pretty easy to get around it.
+// if what you were storing was an array or something.
+#define Hash_Map_Key_For(hash_map, value_ptr)       \
+    ((Typeof((hash_map)->entries->key)*) Generic_Hash_Map_Key_For((Generic_Hash_Map*)(hash_map), (value_ptr), Get_Hash_Map_Type_Properties(hash_map)))
+
+
+// allows you to loop over all values in the hash table.
+//
+// ```
+// Hash_Map(s32, u32) hash_map = ZEROED;
+//
+// *Hash_Map_Get_Or_Default(&hash_map, 52) = 6;
+// *Hash_Map_Get_Or_Default(&hash_map, 12) = 8;
+//
+// Hash_Map_For_Each(value, &hash_map) {
+//     s32 *key = Hash_Map_Key_For(&hash_map, value);
+//
+//     printf("%d => %u", *key, *value);
+//
+//     // you can also modify the value here.
+//     *value += 1;
+// }
+// ```
+#define Hash_Map_For_Each(value_it, hash_map)                       \
+    for (                                                           \
+        Typeof((hash_map)->entries->value) *value_it = NULL;        \
+        Generic_Hash_Map_For_Each_Iterator_Next((Generic_Hash_Map*)(hash_map), (void**)&value_it, Get_Hash_Map_Type_Properties(hash_map));     \
+    )
+
+
+
+// this is the default for a hash table, if no hash function is set.
+//
+// hash's the data for the key.
+//
+// uses FNV-1a
+u64  Hash_Map_Default_Hash_Function    (void *key, u64 size);
+bool Hash_Map_Default_Equality_Function(void *key_a, void *key_b, u64 size);
+
+
+// use these if your key type is String,
+// hash entire string with Hash_Map_Default_Hash_Function()
+u64  Hash_Map_Hash_String(void *key, u64 size);
+bool Hash_Map_Eq_String  (void *key_a, void *key_b, u64 size);
+
+// use this if your key type is a c String,
+// hash entire string with Hash_Map_Default_Hash_Function()
+u64  Hash_Map_Hash_C_String(void *key, u64 size);
+bool Hash_Map_Eq_C_String  (void *key_a, void *key_b, u64 size);
+
+
+// TODO maybe more hash functions,
+//
+// but really, who cares? fnv1a is good enough for every job,
+// some might even say its a great hash function, that is more
+// than fast enough for literally every job, sure you might like
+// djb2 because its simpler or something, but any remotely
+// good hash will do the exact same job.
+u64 Hash_Function_fnv1a(void *key, u64 size);
+// Hash_Function Hash_Function_fnv1(void *key, u64 size);
+
+
+// The generic functions that power the hash map interface.
+
+void *Generic_Hash_Map_Get                  (Generic_Hash_Map *hash_map, void *key,            Hash_Map_Key_Value_Type_Properties properties);
+void *Generic_Hash_Map_Get_Or_Default       (Generic_Hash_Map *hash_map, void *key,            Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location);
+void *Generic_Hash_Map_Put                  (Generic_Hash_Map *hash_map, void *key,            Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location);
+
+bool Generic_Hash_Map_Contains              (Generic_Hash_Map *hash_map, void *key,            Hash_Map_Key_Value_Type_Properties properties);
+
+void Generic_Hash_Map_Clear                 (Generic_Hash_Map *hash_map,                       Hash_Map_Key_Value_Type_Properties properties);
+void Generic_Hash_Map_Free                  (Generic_Hash_Map *hash_map);
+void Generic_Hash_Map_Reserve               (Generic_Hash_Map *hash_map, u64 num_to_reserve,   Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location);
+
+bool Generic_Hash_Map_Remove                (Generic_Hash_Map *hash_map, void *key,            Hash_Map_Key_Value_Type_Properties properties);
+bool Generic_Hash_Map_Remove_By_Value       (Generic_Hash_Map *hash_map, void *value_ptr,      Hash_Map_Key_Value_Type_Properties properties);
+
+void *Generic_Hash_Map_Key_For              (Generic_Hash_Map *hash_map, void *value_ptr,      Hash_Map_Key_Value_Type_Properties properties);
+bool Generic_Hash_Map_For_Each_Iterator_Next(Generic_Hash_Map *hash_map, void **current_value, Hash_Map_Key_Value_Type_Properties properties);
+
+
+
+// ===================================================
 //                       String
 // ===================================================
 
@@ -519,6 +1006,8 @@ typedef struct {
     u64 length;
 } String;
 
+typedef Array(String) String_Array;
+
 
 // Formatting for printf()
 #define S_Fmt    "%.*s"
@@ -528,19 +1017,23 @@ String  String_From_C_Str(const char *str);
 #define S(c_str)    String_From_C_Str(c_str)
 
 
-const char *String_To_C_Str(Arena *arena, String s);
+// will use BESTED_MALLOC() if allocator is NULL
+const char *String_To_C_Str(String s, Arena *allocator);
 const char *temp_String_To_C_Str(String s);
 
 
 typedef struct {
+    // the allocator to use, will use BESTED_MALLOC() if null.
+    Arena* allocator;
+    // weather or not to null terminate the string.
     bool null_terminate;
 } String_Duplicate_Opt;
 
 // if arena == NULL, uses BESTED_MALLOC.
 //
 // by default dose not null_terminate
-#define String_Duplicate(arena, string, ...) _String_Duplicate((arena), (string), (String_Duplicate_Opt){ __VA_ARGS__ })
-String _String_Duplicate(Arena *arena, String s, String_Duplicate_Opt opt);
+#define String_Duplicate(string, ...) _String_Duplicate((string), (String_Duplicate_Opt){ __VA_ARGS__ })
+String _String_Duplicate(String s, String_Duplicate_Opt opt);
 
 // in place.
 void    String_To_Upper(String *s);
@@ -572,6 +1065,28 @@ String  String_Trim_Right(String s);
 // returns a String with the front chopped off, according to the test function.
 // use Is_Whitespace to chop the whitespace off of the front.
 String  String_Chop_While(String s, char_to_bool_func test_char_function);
+
+
+typedef struct {
+    // left side of the split, may be entire
+    // string if separator was not present.
+    String left;
+    // right side of the split. may be empty.
+    String right;
+    // weather the separator was in the string at all.
+    bool ok;
+} Split_Once_Result;
+
+// splits the string once.
+//
+// if the separator is not in the string, the left side
+// returns the whole string, and the right string is empty.
+Split_Once_Result Split_Once(String string, String separator);
+
+// appends the string split by separator parts into the result array.
+//
+// returns the number of sections.
+u64 String_Split_By(String string, String separator, String_Array *result);
 
 
 String String_Path_to_Filename(String s);
@@ -688,260 +1203,12 @@ void String_Builder_To_File(String_Builder *sb, FILE *file);
 void String_Builder_Free(String_Builder *sb);
 
 
-// ===================================================
-//                    Dynamic Array
-// ===================================================
-
-#ifndef ARRAY_INITAL_CAPACITY
-    #define ARRAY_INITAL_CAPACITY       32
-#endif
-
-
-//
-// Example:
-//   - make a variable
-//      Array(Foo) foo_array;
-//
-//   - make a type
-//      typedef Array(Bar) Bar_Array;
-//
-//   foo_array.items     = /* the array pointer */
-//   foo_array.count     = /* number of items in array */
-//   foo_array.capacity  = /* the capacity */
-//   foo_array.allocator = /* a settable arena allocator */
-//
-#define Array(Type)                         \
-    struct {                                \
-        Type *items;                        \
-        u64 count;                          \
-        u64 capacity;                       \
-        Arena *allocator;                   \
-    }
-
-
-// this struct shares the same shape as every array, so we can pass a pointer
-// to an array into a function, and still work normally with its contents.
-typedef struct {
-    void *items;
-    u64 count;
-    u64 capacity;
-    Arena *allocator;
-} Generic_Array;
-
-// so generic functions know how to manipulate the item pointer.
-typedef struct {
-    u64 item_size;
-    u64 item_align;
-} Array_Item_Type_Properties_Struct;
-
-
-#define Array_Item_Size(a)      sizeof(*(a)->items)
-#define Array_Item_Align(a)     Alignof(*(a)->items)
-#define Get_Item_Type_Properties(array) ( (Array_Item_Type_Properties_Struct){ Array_Item_Size(array), Array_Item_Align(array) } )
-
-// might increase the capacity of the array,
-// array will be able to hold at least count elements.
-void Array_Maybe_Grow(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 new_count, bool clear_to_zero, Source_Code_Location source_code_location);
-
-// shifts the array left, why do i have this function?
-void Array_Shift(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 from_index);
-
-
-
-// add a single value
-//
-// could be a function, but would have to take a void* and those suck.
-// this is a macro so you dont have to make a reference every time you add something.
-#define Array_Append(array, value)                                                                                                          \
-    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + 1, false, Get_Source_Code_Location()),     \
-    (array)->items[(array)->count++] = (value))
-
-#define Array_Add(array, n, zeroed)                                                                                                         \
-    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + (n), zeroed, Get_Source_Code_Location()),  \
-    (array)->count += (n),                                                                                                                  \
-    &(array)->items[(array)->count - (n)])
-
-
-
-// make sure there is enough room to hold 'n' items, dose not increase count.
-#define Array_Reserve(array, n)                                                                                 \
-    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (n), false, Get_Source_Code_Location()))
-
-#define Array_Insert(array, index, value)                                                                                                   \
-    (Array_Maybe_Grow((Generic_Array*)(array), Get_Item_Type_Properties(array), (array)->count + 1, false, Get_Source_Code_Location()),     \
-    Mem_Move((array)->items + (index), (array)->items + (index) - 1, ((array)->count - (index)) * Array_Item_Size(array)),                  \
-    (array)->items[(index)] = (value),                                                                                                      \
-    (array)->count += 1)
-
-
-// TODO this could be a function.
-#define Array_Remove(array, index, n)                                                                                                   \
-    do {                                                                                                                                \
-        ASSERT((0 <= (index) && (index) < (array)->count) && (0 <= (n) && (n) <= (array)->count - (index)));                            \
-        Mem_Move((array)->items + (index), (array)->items + (index) + (n), ((array)->count - (index) - (n)) * Array_Item_Size(array));  \
-        (array)->count -= (n);                                                                                                          \
-    } while(0)
-
-// Dose the full swap, so if you add +1 to the count, the item will return.
-#define Array_Swap_And_Remove(array, index)                                 \
-    do {                                                                    \
-        ASSERT(0 <= (index) && (index) < (array)->count);                   \
-        if ((index) != (array)->count-1) {                                  \
-            Typeof(*(array)->items) tmp = (array)->items[(index)];          \
-            (array)->items[(index)] = (array)->items[(array)->count-1];     \
-            (array)->items[(array)->count-1] = tmp;                         \
-        }                                                                   \
-        (array)->count -= 1;                                                \
-    } while (0)
-
-
-// u64 index = it - array->items;
-#define Array_For_Each(type, it, array)                                             \
-    for (type *it = (array)->items; it < (array)->items + (array)->count; it++)
-
-
-#define Array_Free(array)                   \
-    do {                                    \
-        if ((array)->allocator != NULL) {   \
-            fprintf(stderr, "=======================================================================================\n");       \
-            fprintf(stderr, "Are you serious?\n");                                                                              \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "Did you just attempt to free an array that was allready given an allocator?\n");                   \
-            fprintf(stderr, "Not just any allocator either, the only thing arrays accept are arena allocators.\n");             \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "You know I do this for you right?\n");                                                             \
-            fprintf(stderr, "I give you all these tools and this is what you do with it?\n");                                   \
-            fprintf(stderr, "Make a mistake that could have easily been ignored, look into this macro you just called.\n");     \
-            fprintf(stderr, "I can check if you have an allocator and just ignore it, but I wont.\n");                          \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "I'm not gonna even ASSERT(false).\n");                                                             \
-            fprintf(stderr, "I'm gonna let the segmentation falt, or the subtle memory bug do the talking for me.\n");          \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "I hope you have a terrible day.\n");                                                               \
-            fprintf(stderr, "=======================================================================================\n");       \
-        }                                   \
-        BESTED_FREE((array)->items);        \
-        (array)->items = NULL;              \
-    } while (0)
-
-
-
-// ===================================================
-//                Dynamic HashMap
-// ===================================================
-
-// TODO finish this.
-
-//
-// Example Array:
-//
-// struct Int_Float_Pair { u32 key; f32 value; }
-//
-// struct Int_To_Float_Map {
-//     _Map_Header_;
-//     Int_Float_Pair *items;
-// }
-//
-#define _Map_Header_                    \
-    struct {                            \
-        u64 count;                      \
-        u64 capacity;                   \
-        Map_Hash_Entry *table;          \
-        Arena *allocator;               \
-    }
-        // u64 insert_index;
-        // u64 used_count_threshold;
-        // u64 deleted_count;
-        // u64 deleted_count_threshold;
-
-typedef struct { u64 hash; u64 index; } Map_Hash_Entry;
-typedef _Map_Header_ Map_Header;
-
-#define Map_Header_Cast(m)          ((Map_Header*)(m))
-#define Map_Key_Size(m)             sizeof((m)->items[0].key)
-#define Map_Pair_Size(m)            sizeof((m)->items[0])
-
-#define Map_Table_Size_Multiplier   4
-#define Map_Table_Size(m)           ((m)->capacity * Map_Table_Size_Multiplier)
-
-
-#define Map_Reserve(arena, m, n)        TODO("Map_Reserve")
-#define Map_Default(arena, m, val)      TODO("Map_Default")
-#define Map_Default_S(arena, m, s)      TODO("Map_Default_S")
-#define Map_Clear(m)                    ((m)->count = 0)
-#define Map_Clone(arena, m, result)     TODO("Map_Clone")
-
-
-#define HASH_UNALLOCATED    (0)
-#define HASH_DEAD           (0xFFFFFFFFFFFFFFFF)
-
-u64   _Map_hash_ptr_and_size            (void *ptr, u64 size);
-// returns the index of the key, or a place it can be placed, or -1 if capacity is zero.
-s64   _Map_maybe_get_index_of_key       (Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size);
-// gets the index of a key, -1 if the key is not in the array.
-s64   _Map_get_index_of_key_in_table    (Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size);
-s64   _Map_get_index_of_key_in_items    (Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size);
-s64   _Map_get_index_of_key_in_items    (Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size);
-void *_Map_get_pointer_to_pair_in_items (Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size);
-void *_Map_Grow                         (Map_Header *header, void *kv_array, u64 key_size, u64 kv_pair_size, u64 count);
-void *_Map_Put                          (Map_Header *header, void *kv_array, void *key, u64 key_size, void *kv_pair, u64 kv_pair_size);
-
-// Generic map
-#define Map_Put(m, k, val)                                                           \
-    ((m)->items = _Map_Put(                                                                 \
-                    Map_Header_Cast(m), (m)->items,                                         \
-                    &(k), Map_Key_Size(m),                                                  \
-                    &((Typeof(*(m)->items)){.key = (k), .value = val}), Map_Pair_Size(m)    \
-                ))
-
-#define Map_Index(m, k)             _Map_get_index_of_key_in_items((m)->table, Map_Table_Size(m), (m)->items, _Map_hash_ptr_and_size(&(k), Map_Key_Size(m)), &(k), Map_Key_Size(m), Map_Pair_Size(m))
-
-#define Map_Get(m, type, k)                                                                 \
-    ({                                                                                      \
-        Typeof((m)->items) ptr = _Map_get_pointer_to_pair_in_items((m)->table, Map_Table_Size(m), (m)->items, _Map_hash_ptr_and_size(&(k), Map_Key_Size(m)), &(k), Map_Key_Size(m), Map_Pair_Size(m));  \
-        ptr ? &ptr->value : NULL;                                                           \
-    })
-
-#define Map_Try_Get(m, k, outVal)       TODO("Map_Try_Get")
-#define Map_Get_S(m, type, k)           TODO("Map_Get_S")
-#define Map_Get_Ptr(m, k)               TODO("Map_Get_Ptr")
-#define Map_Get_Ptr_Null(m, k)          TODO("Map_Get_Ptr_Null")
-#define Map_Del(m, k)                   TODO("Map_Del")
-
-#define Map_Free(m)                         \
-    do {                                    \
-        if ((m)->allocator != NULL) {       \
-            fprintf(stderr, "=======================================================================================\n");       \
-            fprintf(stderr, "Are you serious?\n");                                                                              \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "Did you just attempt to free a hashmap that was allready given an allocator?\n");                  \
-            fprintf(stderr, "Not just any allocator either, the only thing hashmaps accept are arena allocators.\n");           \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "You know I do this for you right?\n");                                                             \
-            fprintf(stderr, "I give you all these tools and this is what you do with it?\n");                                   \
-            fprintf(stderr, "Make a mistake that could have easily been ignored, look into this macro you just called.\n");     \
-            fprintf(stderr, "I can check if you have an allocator and just ignore it, but I wont.\n");                          \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "I'm not gonna even ASSERT(false).\n");                                                             \
-            fprintf(stderr, "I'm gonna let the segmentation falt, or the subtle memory bug do the talking for me.\n");          \
-            fprintf(stderr, "\n");                                                                                              \
-            fprintf(stderr, "I hope you have a terrible day.\n");                                                               \
-            fprintf(stderr, "=======================================================================================\n");       \
-        }                                   \
-        BESTED_FREE((m)->table);            \
-        BESTED_FREE((m)->items);            \
-        (m)->table = NULL;                  \
-        (m)->items = NULL;                  \
-    } while (0)
-
-
 
 // ===================================================
 //                      Misc
 // ===================================================
 
 // these are just useful, dont have to make these every single project.
-typedef Array(String) String_Array;
 typedef Array(s64)    Int_Array;
 
 
@@ -980,9 +1247,6 @@ const char *print_f64   (void *_x);
 
 const char *print_bool  (void *_x);
 const char *print_string(void *_x);
-
-// const char *print_s64_array(void *_array);
-// const char *print_string_array(void *_array);
 
 
 
@@ -1133,7 +1397,7 @@ internal inline void *Arena_Internal_Get_New_Memory_At_Last_Region(Arena *arena,
 }
 
 
-void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_Code_Location source_code_location) {
+void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_Code_Location caller_location) {
     // TODO track allocations.
 
     u64 default_size = (arena->minimum_allocation_size != 0) ? arena->minimum_allocation_size : ARENA_REGION_DEFAULT_CAPACITY;
@@ -1145,19 +1409,19 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_
     // if the arena currently holds no memory
     if (arena->last == NULL) {
         if (arena->first != NULL) {
-            ARENA_PANIC(source_code_location, "arena->first != NULL, only these library functions should touch the insides of an arena.");
+            ARENA_PANIC(caller_location, "arena->first != NULL, only these library functions should touch the insides of an arena.");
             return NULL;
         }
 
         if (arena->panic_when_trying_to_allocate_new_page) {
-            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, but that has been disallowed. (when there was no memory to begin with.)");
+            ARENA_PANIC(caller_location, "Arena_alloc: attempted to allocate new memory, but that has been disallowed. (when there was no memory to begin with.)");
             return NULL;
         }
 
         arena->last = Arena_Internal_New_Region(to_alloc_if_no_room);
         if (arena->last == NULL) {
             if (arena->dont_panic_when_allocation_failure) return NULL;
-            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, got null. (when there was no memory to begin with.)");
+            ARENA_PANIC(caller_location, "Arena_alloc: attempted to allocate new memory, got null. (when there was no memory to begin with.)");
             return NULL;
         }
 
@@ -1165,7 +1429,7 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_
 
         void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
         if (!new_memory) {
-            ARENA_PANIC(source_code_location, "new_memory from internal allocator returned null wtf.");
+            ARENA_PANIC(caller_location, "new_memory from internal allocator returned null wtf.");
         }
         return new_memory;
     }
@@ -1184,7 +1448,7 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_
         // if there is space alloc
         void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
         if (!new_memory) {
-            ARENA_PANIC(source_code_location, "new_memory from internal allocator returned null wtf.");
+            ARENA_PANIC(caller_location, "new_memory from internal allocator returned null wtf.");
         }
         return new_memory;
 
@@ -1192,12 +1456,12 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_
         // we need a new region
 
         if (arena->last->next != NULL) {
-            ARENA_PANIC(source_code_location, "arena->last->next != NULL, only these library functions should touch the insides of an arena, and they should never produce this state.");
+            ARENA_PANIC(caller_location, "arena->last->next != NULL, only these library functions should touch the insides of an arena, and they should never produce this state.");
             return NULL;
         }
 
         if (arena->panic_when_trying_to_allocate_new_page) {
-            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, but that has been disallowed.");
+            ARENA_PANIC(caller_location, "Arena_alloc: attempted to allocate new memory, but that has been disallowed.");
             return NULL;
         }
 
@@ -1206,14 +1470,14 @@ void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_
         arena->last = Arena_Internal_New_Region(to_alloc_if_no_room);
         if (arena->last == NULL) {
             if (arena->dont_panic_when_allocation_failure) return NULL;
-            ARENA_PANIC(source_code_location, "Arena_alloc: attempted to allocate new memory, got null.");
+            ARENA_PANIC(caller_location, "Arena_alloc: attempted to allocate new memory, got null.");
         }
         last_last->next = arena->last;
 
 
         void *new_memory = Arena_Internal_Get_New_Memory_At_Last_Region(arena, size_in_bytes, opt.alignment, opt.clear_to_zero);
         if (!new_memory) {
-            ARENA_PANIC(source_code_location, "new_memory from internal allocator returned null wtf.");
+            ARENA_PANIC(caller_location, "new_memory from internal allocator returned null wtf.");
         }
         return new_memory;
     }
@@ -1236,7 +1500,7 @@ void Arena_Set_To_Mark(Arena *arena, Arena_Mark mark) {
 }
 
 
-void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, Source_Code_Location source_code_location) {
+void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, Source_Code_Location caller_location) {
     if (arena->first != NULL) return;
 
     u64 tmp_min_alloc_size = arena->minimum_allocation_size;
@@ -1245,20 +1509,20 @@ void _Arena_Initialize_First_Page(Arena *arena, u64 first_page_size_in_bytes, So
     _Arena_Alloc(
         arena, 0,
         (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = false, },
-        source_code_location
+        caller_location
     );
 
     arena->minimum_allocation_size = tmp_min_alloc_size;
 }
 
 
-void _Arena_Add_Buffer_As_Storage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, Source_Code_Location source_code_location) {
+void _Arena_Add_Buffer_As_Storage_Space(Arena *arena, void *buffer, u64 buffer_size_in_bytes, Source_Code_Location caller_location) {
     if (buffer == NULL) {
-        ARENA_PANIC(source_code_location, "Arena_Add_Buffer_As_Storeage_Space: buffer != NULL, why did you pass this to us.");
+        ARENA_PANIC(caller_location, "Arena_Add_Buffer_As_Storeage_Space: buffer != NULL, why did you pass this to us.");
         return;
     }
     if (buffer_size_in_bytes <= sizeof(Region)) {
-        ARENA_PANIC(source_code_location, "Arena_Add_Buffer_As_Storeage_Space: buffer_size_in_bytes <= sizeof(Region), The passed in buffer must be big enough to contain the Region, preferably much bigger");
+        ARENA_PANIC(caller_location, "Arena_Add_Buffer_As_Storeage_Space: buffer_size_in_bytes <= sizeof(Region), The passed in buffer must be big enough to contain the Region, preferably much bigger");
         return;
     }
 
@@ -1273,7 +1537,7 @@ void _Arena_Add_Buffer_As_Storage_Space(Arena *arena, void *buffer, u64 buffer_s
 
     if (arena->last == NULL) {
         if (arena->first != NULL) {
-            ARENA_PANIC(source_code_location, "Arena_Add_Buffer_As_Storeage_Space: arena->first != NULL, when arena->last == NULL, something went wrong internally");
+            ARENA_PANIC(caller_location, "Arena_Add_Buffer_As_Storeage_Space: arena->first != NULL, when arena->last == NULL, something went wrong internally");
         }
         arena->first = new_region;
         arena->last  = new_region;
@@ -1452,6 +1716,558 @@ void Pool_Free_Arenas(Arena_Pool *pool) {
 
 
 // ===================================================
+//                Dynamic Arrays
+// ===================================================
+
+void Array_Maybe_Grow(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 new_count, bool clear_to_zero, Source_Code_Location caller_location) {
+    ASSERT(array); // would be kinda weird.
+
+    // if the new count is less, we dont need to do anything. not even clear anything.
+    if (new_count <= array->count) return;
+
+    if (new_count > array->capacity) {
+        array->capacity = array->capacity ? array->capacity * 2 : ARRAY_INITAL_CAPACITY;
+        while (array->capacity < new_count) array->capacity *= 2;
+
+        void *new_array = NULL;
+        if (array->allocator) {
+
+            // special case where the last thing to allocate was this current array,
+            // in this case we dont need to do any Mem_Copy, just advance the count_in_bytes.
+            if (array->allocator->last) {
+                bool last_allocation_was_this_array = (array->allocator->last->data + array->allocator->last->count_in_bytes) - (array->count * item_properties.item_size) == array->items;
+                if (last_allocation_was_this_array) {
+                    u64 number_of_new_elements = array->capacity - array->count;
+                    u64 new_amount_to_allocate = number_of_new_elements * item_properties.item_size;
+                    bool new_array_can_fit_into_current_region = array->allocator->last->count_in_bytes + new_amount_to_allocate <= array->allocator->last->capacity_in_bytes;
+
+                    if (new_array_can_fit_into_current_region) {
+                        // TODO maybe call this function, this is some dangerous manipulation.
+                        // Arena_Alloc(array->allocator, new_amount_to_allocate);
+                        array->allocator->last->count_in_bytes += new_amount_to_allocate;
+                        goto skip_allocation;
+                    }
+                }
+            }
+
+            // need to do this, need to set file and line properly.
+            //
+            // void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line);
+            new_array = _Arena_Alloc(
+                array->allocator, item_properties.item_size * array->capacity,
+                (Arena_Alloc_Opt){.alignment = item_properties.item_align, .clear_to_zero = false, },
+                caller_location
+            );
+        } else {
+            new_array = BESTED_ALIGNED_ALLOC(item_properties.item_align, item_properties.item_size * array->capacity);
+        }
+
+        // malloc may return null, or the arena can be set
+        // to return NULL instead of panic'ing for an allocation.
+        //
+        // no nice way to handle this, and this situation
+        // is so rare, I dont care about it.
+        //
+        // eat this panic.
+        if (new_array == NULL) {
+            PANIC(SCL_Fmt" got null when trying to grow array", SCL_Arg(caller_location));
+        }
+
+        Mem_Copy(new_array, array->items, item_properties.item_size * array->count);
+
+        if (!array->allocator) BESTED_FREE(array->items);
+        array->items = new_array;
+    }
+
+skip_allocation:
+    if (clear_to_zero) {
+        u64 new_to_add = new_count - array->count;
+        Mem_Zero((u8*)array->items + (item_properties.item_size * array->count), item_properties.item_size * new_to_add);
+    }
+}
+
+
+void Array_Shift(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 from_index) {
+    ASSERT(array); // would be kinda weird.
+
+    Mem_Move(array->items, (u8*)array->items + from_index, (array->count - from_index) * item_properties.item_size);
+    array->count -= from_index;
+}
+
+
+
+// ===================================================
+//                Dynamic Hash Map
+// ===================================================
+
+// Hash Map helper functions / macros.
+
+#define Hash_Map_UNALLOCATED    (0)
+#define Hash_Map_DEAD           (1)
+
+#define HASH_MAP_HASH_FROM_ENTRY(entry) (((Generic_Entry*)entry)->hash)
+
+// why use a macro when you can just not?
+internal bool Hash_Map_Hash_Is_Bad(u64 hash) {
+    return (hash == Hash_Map_UNALLOCATED) || (hash == Hash_Map_DEAD);
+}
+
+// return NULL if there are no entries,
+//
+// else either return the real entry that holds that key,
+//
+// or return somewhere new to put the key
+internal void *Hash_Map_Maybe_Get_Entry(Generic_Hash_Map *hash_map, void *key, u64 hash, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    // don't give this an invalid hash.
+    ASSERT(!Hash_Map_Hash_Is_Bad(hash));
+
+    if (hash_map->capacity == 0) return NULL;
+
+    // gonna need this to check if keys are equal.
+    Equality_Function equality_function = hash_map->eq_function ? hash_map->eq_function : Hash_Map_Default_Equality_Function;
+
+    // must be true, or my probe strategy will not cover every cell.
+    ASSERT(Is_Pow_2(hash_map->capacity));
+    u64 increment   = 1;
+    u64 entry_index = hash % hash_map->capacity;
+
+    while (true) {
+        void *entry = (u8*)hash_map->entries + entry_index * properties.entry_size;
+
+        // this is a valid position to put something in. break
+        if (HASH_MAP_HASH_FROM_ENTRY(entry) == Hash_Map_UNALLOCATED) break;
+
+        // check if this is the same key.
+        if (HASH_MAP_HASH_FROM_ENTRY(entry) == hash && equality_function(key, (u8*)entry + properties.key_offset_in_entry, properties.key_size)) {
+            return entry;
+        }
+
+        entry_index = (entry_index + increment) % hash_map->capacity;
+        increment += 1;
+        ASSERT(increment < 4096); // what are the odds for 4096 hash collisions in a row? something bad must have happened.
+    }
+
+    // TODO maybe better to return a DEAD position? we can keep track if we have seen one.
+    return (u8*)hash_map->entries + entry_index * properties.entry_size;
+}
+
+// returns the entry that uses this key,
+//
+// if the key dose not exist in the hash map, return NULL
+internal void *Hash_Map_Get_Entry_Of_Key(Generic_Hash_Map *hash_map, void *key, u64 hash, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    void *entry = Hash_Map_Maybe_Get_Entry(hash_map, key, hash, properties);
+
+    if (entry == NULL) return NULL;
+
+    u64 entry_hash = HASH_MAP_HASH_FROM_ENTRY(entry);
+    if (Hash_Map_Hash_Is_Bad(entry_hash)) return NULL;
+
+    ASSERT(entry_hash == hash);
+    return entry;
+}
+
+// hash's that are equal to Hash_Map_UNALLOCATED or Hash_Map_DEAD are not good.
+internal u64 Hash_Map_Safely_Get_Hash(Generic_Hash_Map *hash_map, void *key, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    Hash_Function hash_function = hash_map->hash_function ? hash_map->hash_function : Hash_Map_Default_Hash_Function;
+    u64 key_hash = hash_function(key, properties.key_size);
+
+    if (Hash_Map_Hash_Is_Bad(key_hash)) {
+        // some random number, to place the key randomly in the resulting hashmap,
+        //
+        // (this number is just the FNV 64-bit offset)
+        return 14695981039346656037ULL;
+    }
+
+    return key_hash;
+}
+
+internal void *Generic_Hash_Map_Get_Entry_For_Value(Generic_Hash_Map *hash_map, void *value_ptr, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(value_ptr);
+
+    void *entry = (u8*)value_ptr - properties.value_offset_in_entry;
+
+    { // do some checks to be sure we got a valid pointer.
+        // should map down into entry.
+        s64 index_of_entry = ((u8*)entry - (u8*)hash_map->entries) / properties.entry_size;
+
+        // make sure this is in the range of the hash map.
+        ASSERT(Is_Between(index_of_entry, 0, (s64)hash_map->capacity-1));
+
+        // make sure we got the right thing. make sure were not about to write somewhere stupid.
+        ASSERT((u8*)hash_map->entries + index_of_entry * properties.entry_size + properties.value_offset_in_entry == value_ptr);
+    }
+
+    return entry;
+}
+
+internal void Hash_Map_Maybe_Grow(Generic_Hash_Map *hash_map, u64 be_able_to_fit_at_least, Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location) {
+    ASSERT(hash_map);
+
+    const u64 HASH_MAP_GROWTH_PERCENT = 75;
+
+    // only grow array when at nearing capacity, not at capacity.
+    if (be_able_to_fit_at_least < hash_map->capacity * HASH_MAP_GROWTH_PERCENT / 100) return;
+
+    void *old_entries = hash_map->entries;
+    u64   old_size    = hash_map->capacity;
+    u64   old_count = hash_map->count;
+
+    if (old_size == 0) ASSERT(old_entries == NULL);
+    else               ASSERT(old_entries != NULL);
+
+    // grow array capacity.
+    hash_map->capacity = hash_map->capacity != 0 ? hash_map->capacity * 2 : HASH_MAP_INITAL_CAPACITY;
+    while (be_able_to_fit_at_least >= hash_map->capacity * HASH_MAP_GROWTH_PERCENT / 100) {
+        hash_map->capacity *= 2;
+    }
+
+    // get the new memory.
+    if (hash_map->allocator) {
+        // have to do this to set the caller location correctly.
+        hash_map->entries = _Arena_Alloc(
+            hash_map->allocator, properties.entry_size * hash_map->capacity,
+            (Arena_Alloc_Opt){ .alignment = properties.entry_alignment, .clear_to_zero = true, },
+            caller_location
+        );
+    } else {
+        hash_map->entries = BESTED_ALIGNED_ALLOC(properties.entry_alignment, hash_map->capacity * properties.entry_size);
+        // remember to clear malloc memory.
+        Mem_Zero(hash_map->entries, hash_map->capacity * properties.entry_size);
+    }
+
+    // arena's can be set so they dont panic when
+    // getting a NULL pointer from malloc,
+    //
+    // there is no neat way to say this function failed,
+    // so im just gonna panic here.
+    //
+    // if your in a situation where memory might run out,
+    // your machine is probably so low powered, a hash map
+    // wouldn't have that many items in it anyway.
+    // use a raw Arena instead.
+    if (hash_map->entries == NULL) {
+        PANIC(SCL_Fmt" got null pointer when trying to allocate memory for arena growth.", SCL_Arg(caller_location));
+    }
+
+    // reset fields that need resetting.
+    hash_map->count = 0;
+    hash_map->dead_count = 0;
+
+    // now copy over the old entries
+    for (u64 i = 0; i < old_size; i++) {
+        void *this_entry = (u8*)old_entries + i * properties.entry_size;
+        u64   this_hash  = HASH_MAP_HASH_FROM_ENTRY(this_entry);
+
+        // dont care about bad entries.
+        if (Hash_Map_Hash_Is_Bad(this_hash)) continue;
+
+        void *new_entry = Hash_Map_Maybe_Get_Entry(hash_map, (u8*)this_entry + properties.key_offset_in_entry, this_hash, properties);
+        // just checking to see if we got a good place.
+        ASSERT(new_entry != NULL);
+        ASSERT(HASH_MAP_HASH_FROM_ENTRY(new_entry) == Hash_Map_UNALLOCATED);
+
+        // copy the new entry in.
+        Mem_Copy(new_entry, this_entry, properties.entry_size);
+
+        // we just added a new item!
+        hash_map->count += 1;
+    }
+
+    ASSERT(hash_map->count == old_count);
+
+    if (!hash_map->allocator) {
+        // remember to clear the old entries.
+        //
+        // its ok to free a null pointer.
+        BESTED_FREE(old_entries);
+    }
+}
+
+
+
+void *Generic_Hash_Map_Get(Generic_Hash_Map *hash_map, void *key, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    u64 key_hash = Hash_Map_Safely_Get_Hash(hash_map, key, properties);
+
+    void *entry = Hash_Map_Get_Entry_Of_Key(hash_map, key, key_hash, properties);
+    if (entry == NULL) return NULL;
+
+    return (u8*)entry + properties.value_offset_in_entry;
+}
+
+internal void *Generic_Hash_Map_Put_Or_Get_Default_Helper(Generic_Hash_Map *hash_map, void *key, bool set_default, Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    u64 key_hash = Hash_Map_Safely_Get_Hash(hash_map, key, properties);
+
+    // This might make the hash map grow, even when in
+    // some cases it shouldn't, do I care?
+    Hash_Map_Maybe_Grow(hash_map, hash_map->dead_count + hash_map->count + 1, properties, caller_location);
+
+    // must be space to put this new thing.
+    ASSERT(hash_map->capacity > 0);
+
+    void *entry = Hash_Map_Maybe_Get_Entry(hash_map, key, key_hash, properties);
+
+    // we just grew the array, this must either be
+    // the correct key, or something unallocated.
+    ASSERT(entry != NULL);
+
+    if (HASH_MAP_HASH_FROM_ENTRY(entry) == Hash_Map_UNALLOCATED) {
+        // set hash.
+        ((Generic_Entry*) entry)->hash = key_hash;
+        // set key
+        Mem_Copy((u8*)entry + properties.key_offset_in_entry, key, properties.key_size);
+        if (set_default) {
+            // set default value.
+            Mem_Copy((u8*)entry + properties.value_offset_in_entry, (u8*)hash_map + properties.default_value_offset_in_hash_map, properties.value_size);
+        }
+
+        hash_map->count += 1;
+    }
+
+    return (u8*)entry + properties.value_offset_in_entry;
+}
+
+void *Generic_Hash_Map_Get_Or_Default(Generic_Hash_Map *hash_map, void *key, Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    return Generic_Hash_Map_Put_Or_Get_Default_Helper(hash_map, key, true, properties, caller_location);
+}
+
+void *Generic_Hash_Map_Put(Generic_Hash_Map *hash_map, void *key, Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    return Generic_Hash_Map_Put_Or_Get_Default_Helper(hash_map, key, false, properties, caller_location);
+}
+
+
+bool Generic_Hash_Map_Contains(Generic_Hash_Map *hash_map, void *key, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    u64 key_hash = Hash_Map_Safely_Get_Hash(hash_map, key, properties);
+    void *entry = Hash_Map_Get_Entry_Of_Key(hash_map, key, key_hash, properties);
+    return entry != NULL;
+}
+
+void Generic_Hash_Map_Clear(Generic_Hash_Map *hash_map, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+
+    // set all entries to unallocated.
+    for (u64 i = 0; i < hash_map->capacity; i++) {
+        Generic_Entry *entry = (void*)((u8*)hash_map->entries + i * properties.entry_size);
+        entry->hash = Hash_Map_UNALLOCATED;
+    }
+
+    hash_map->count = 0;
+    hash_map->dead_count = 0;
+}
+
+void Generic_Hash_Map_Free(Generic_Hash_Map *hash_map) {
+    ASSERT(hash_map);
+
+    if (hash_map->allocator) {
+        fprintf(stderr, "=======================================================================================\n");
+        fprintf(stderr, "Are you serious?\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "Did you just attempt to free a hash_map that was allready given an allocator?\n");
+        fprintf(stderr, "Not just any allocator either, the only thing hash_maps accept are arena allocators.\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "You know I do this for you right?\n");
+        fprintf(stderr, "I give you all these tools and this is what you do with it?\n");
+        fprintf(stderr, "Make a mistake that could have easily been ignored, look into this function you just called.\n");
+        fprintf(stderr, "I can check if you have an allocator and just ignore it, but I wont.\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "I'm not gonna even ASSERT(false).\n");
+        fprintf(stderr, "I'm gonna let the segmentation falt, or the subtle memory bug do the talking for me.\n");
+        fprintf(stderr, "\n");
+        fprintf(stderr, "I hope you have a terrible day.\n");
+        fprintf(stderr, "=======================================================================================\n");
+    }
+    BESTED_FREE(hash_map->entries);
+    hash_map->entries = NULL;
+
+    hash_map->count      = 0;
+    hash_map->dead_count = 0;
+    hash_map->capacity   = 0;
+}
+
+void Generic_Hash_Map_Reserve(Generic_Hash_Map *hash_map, u64 num_to_reserve, Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location) {
+    ASSERT(hash_map);
+
+    Hash_Map_Maybe_Grow(hash_map, num_to_reserve, properties, caller_location);
+}
+
+bool Generic_Hash_Map_Remove(Generic_Hash_Map *hash_map, void *key, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(key);
+
+    u64 key_hash = Hash_Map_Safely_Get_Hash(hash_map, key, properties);
+
+    void *entry = Hash_Map_Get_Entry_Of_Key(hash_map, key, key_hash, properties);
+    if (entry == NULL) return false;
+
+    u64 hash = HASH_MAP_HASH_FROM_ENTRY(entry);
+    if (hash == Hash_Map_UNALLOCATED) return false;
+    if (hash == Hash_Map_DEAD)        return false;
+
+    ASSERT(key_hash == hash);
+    ((Generic_Entry*) entry)->hash = Hash_Map_DEAD;
+    hash_map->count      -= 1;
+    hash_map->dead_count += 1;
+    return true;
+}
+
+bool Generic_Hash_Map_Remove_By_Value(Generic_Hash_Map *hash_map, void *value_ptr, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(value_ptr);
+
+    void *entry = Generic_Hash_Map_Get_Entry_For_Value(hash_map, value_ptr, properties);
+
+    // would be super weird if this was the case.
+    u64 hash = HASH_MAP_HASH_FROM_ENTRY(entry);
+    if (hash == Hash_Map_UNALLOCATED) return false;
+    if (hash == Hash_Map_DEAD)        return false;
+
+    ((Generic_Entry*) entry)->hash = Hash_Map_DEAD;
+    hash_map->count      -= 1;
+    hash_map->dead_count += 1;
+    return true;
+}
+
+
+void *Generic_Hash_Map_Key_For(Generic_Hash_Map *hash_map, void *value_ptr, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(value_ptr);
+
+    void *entry = Generic_Hash_Map_Get_Entry_For_Value(hash_map, value_ptr, properties);
+    return (u8*)entry + properties.key_offset_in_entry;
+}
+
+// returns if we should continue runing
+bool Generic_Hash_Map_For_Each_Iterator_Next(Generic_Hash_Map *hash_map, void **current_value, Hash_Map_Key_Value_Type_Properties properties) {
+    ASSERT(hash_map);
+    ASSERT(current_value);
+
+    void *start = (u8*)hash_map->entries;
+    void *end   = (u8*)hash_map->entries + hash_map->capacity * properties.entry_size;
+
+    void *current_entry;
+
+    if (*current_value == NULL) {
+        // this is the start of the iteration.
+        // return first element.
+        current_entry = start;
+    } else {
+        current_entry = Generic_Hash_Map_Get_Entry_For_Value(hash_map, *current_value, properties);
+        // also move 1 along.
+        current_entry = (u8*)current_entry + 1 * properties.entry_size;
+    }
+
+    // while the entry is empty. continue.
+    while (current_entry < end && Hash_Map_Hash_Is_Bad(HASH_MAP_HASH_FROM_ENTRY(current_entry))) {
+        current_entry = (u8*)current_entry + 1 * properties.entry_size;
+    }
+
+    *current_value = (u8*)current_entry + properties.value_offset_in_entry;
+    return (u8*)current_entry < (u8*)end;
+}
+
+
+
+u64 Hash_Map_Default_Hash_Function(void *key, u64 size) {
+    ASSERT(key);
+
+    return Hash_Function_fnv1a(key, size);
+}
+bool Hash_Map_Default_Equality_Function(void *key_a, void *key_b, u64 size) {
+    ASSERT(key_a && key_b);
+
+    return Mem_Eq(key_a, key_b, size);
+}
+
+
+u64 Hash_Map_Hash_String  (void *key, u64 size) {
+    ASSERT(key);
+    ASSERT(size == sizeof(String));
+
+    String *string = key;
+    return Hash_Map_Default_Hash_Function(string->data, string->length);
+}
+bool Hash_Map_Eq_String(void *key_a, void *key_b, u64 size) {
+    ASSERT(key_a && key_b);
+    ASSERT(size == sizeof(String));
+
+    String *string_a = key_a;
+    String *string_b = key_b;
+    return String_Eq(*string_a, *string_b);
+}
+
+
+u64 Hash_Map_Hash_C_String  (void *key, u64 size) {
+    ASSERT(key);
+    ASSERT(size == sizeof(const char *));
+
+    const char **c_str = key;
+    // yeah I know, this passes over the string twice,
+    //
+    // I do not care.
+    //
+    // just use the String type to begin with.
+    String string = S(*c_str);
+    return Hash_Map_Default_Hash_Function(string.data, string.length);
+}
+bool Hash_Map_Eq_C_String(void *key_a, void *key_b, u64 size) {
+    ASSERT(key_a && key_b);
+    ASSERT(size == sizeof(const char *));
+
+    const char **c_str_a = key_a;
+    const char **c_str_b = key_b;
+    // it would be so much better if we had a way
+    // of telling what the size of the string was...
+    String string_a = S(*c_str_a);
+    String string_b = S(*c_str_b);
+    return String_Eq(string_a, string_b);
+}
+
+
+u64 Hash_Function_fnv1a(void *key, u64 size) {
+    // its ok for the key to be NULL here,
+    // could be hashing a string or something
+    if (size > 0) ASSERT(key);
+
+    // 64 bit offset_basis = 14695981039346656037
+    const u64 FNV_offset = 14695981039346656037ULL;
+    // 64 bit FNV_prime = 2^40 + 2^8 + 0xb3 = 1099511628211
+    const u64 FNV_prime  =        1099511628211ULL;
+
+    u8 *u8_ptr = key;
+    u64 hash = FNV_offset;
+    for (u64 i = 0; i < size; i++) {
+        hash = (hash ^ u8_ptr[i]) * FNV_prime;
+    }
+    return hash;
+}
+
+
+
+// ===================================================
 //                       String
 // ===================================================
 
@@ -1473,8 +2289,8 @@ String String_From_C_Str(const char *str) {
     };
     return result;
 }
-const char *String_To_C_Str(Arena *arena, String s) {
-    return String_Duplicate(arena, s, .null_terminate = true).data;
+const char *String_To_C_Str(String s, Arena *allocator) {
+    return String_Duplicate(s, .allocator = allocator, .null_terminate = true).data;
 }
 
 #define TEMP_STRING_TO_C_STR_NUM_BUFFERS    64
@@ -1495,11 +2311,11 @@ const char *temp_String_To_C_Str(String s) {
 }
 
 
-String _String_Duplicate(Arena *arena, String s, String_Duplicate_Opt opt) {
+String _String_Duplicate(String s, String_Duplicate_Opt opt) {
     String result = { .length = s.length, };
     u64 alloc_size = s.length + (opt.null_terminate ? 1 : 0);
-    if (arena) {
-        result.data = (char*) Arena_Alloc(arena, alloc_size);
+    if (opt.allocator) {
+        result.data = (char*) Arena_Alloc(opt.allocator, alloc_size);
     } else {
         result.data = (char*) BESTED_MALLOC(alloc_size);
     }
@@ -1633,6 +2449,45 @@ String String_Chop_While(String s, char_to_bool_func test_char_function) {
     }
     return String_Advanced(s, (s64)i);
 }
+
+
+Split_Once_Result Split_Once(String string, String separator) {
+    s64 index = String_Find_Index_Of(string, separator);
+
+    if (index == -1) {
+        Split_Once_Result result = {
+            .left  = string,
+            .right = ZEROED,
+            .ok    = false,
+        };
+        return result;
+    } else {
+        Split_Once_Result result = {
+            .left  = { .data = string.data, .length = index },
+            .right = {
+                .data   = string.data   +  index + separator.length ,
+                .length = string.length - (index + separator.length),
+            },
+            .ok    = true,
+        };
+        return result;
+    }
+}
+
+
+u64 String_Split_By(String string, String separator, String_Array *result) {
+    u64 split_count = 0;
+    while (string.length > 0) {
+        split_count += 1;
+        Split_Once_Result split = Split_Once(string, separator);
+
+        Array_Append(result, split.left);
+        string = split.right;
+    }
+    return split_count;
+}
+
+
 
 String String_Path_to_Filename(String s) {
     while (true) {
@@ -1967,223 +2822,6 @@ void String_Builder_Free(String_Builder *sb) {
 
 
 // ===================================================
-//                Dynamic Arrays
-// ===================================================
-
-void Array_Maybe_Grow(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 new_count, bool clear_to_zero, Source_Code_Location source_code_location) {
-    ASSERT(array); // would be kinda weird.
-
-    // if the new count is less, we dont need to do anything. not even clear anything.
-    if (new_count <= array->count) return;
-
-    if (new_count > array->capacity) {
-        array->capacity = array->capacity ? array->capacity * 2 : ARRAY_INITAL_CAPACITY;
-        while (array->capacity < new_count) array->capacity *= 2;
-
-        void *new_array = NULL;
-        if (array->allocator) {
-
-            // special case where the last thing to allocate was this current array,
-            // in this case we dont need to do any Mem_Copy, just advance the count_in_bytes.
-            if (array->allocator->last) {
-                bool last_allocation_was_this_array = (array->allocator->last->data + array->allocator->last->count_in_bytes) - (array->count * item_properties.item_size) == array->items;
-                if (last_allocation_was_this_array) {
-                    u64 number_of_new_elements = array->capacity - array->count;
-                    u64 new_amount_to_allocate = number_of_new_elements * item_properties.item_size;
-                    bool new_array_can_fit_into_current_region = array->allocator->last->count_in_bytes + new_amount_to_allocate <= array->allocator->last->capacity_in_bytes;
-
-                    if (new_array_can_fit_into_current_region) {
-                        // TODO maybe call this function, this is some dangerous manipulation.
-                        // Arena_Alloc(array->allocator, new_amount_to_allocate);
-                        array->allocator->last->count_in_bytes += new_amount_to_allocate;
-                        goto skip_allocation;
-                    }
-                }
-            }
-
-            // need to do this, need to set file and line properly.
-            //
-            // void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, const char *file, s32 line);
-            new_array = _Arena_Alloc(
-                array->allocator, item_properties.item_size * array->capacity,
-                (Arena_Alloc_Opt){.alignment = item_properties.item_align, .clear_to_zero = false, },
-                source_code_location
-            );
-            Mem_Copy(new_array, array->items, item_properties.item_size * array->count);
-        } else {
-            new_array = BESTED_ALIGNED_ALLOC(item_properties.item_align, item_properties.item_size * array->capacity);
-            Mem_Copy(new_array, array->items, item_properties.item_size * array->count);
-            BESTED_FREE(array->items);
-        }
-
-        array->items = new_array;
-    }
-
-skip_allocation:
-    if (clear_to_zero) {
-        u64 new_to_add = new_count - array->count;
-        Mem_Zero((u8*)array->items + (item_properties.item_size * array->count), item_properties.item_size * new_to_add);
-    }
-}
-
-
-void Array_Shift(Generic_Array *array, Array_Item_Type_Properties_Struct item_properties, u64 from_index) {
-    Mem_Move(array->items, (u8*)array->items + from_index, (array->count - from_index) * item_properties.item_size);
-    array->count -= from_index;
-}
-
-
-
-// ===================================================
-//                Dynamic HashMap
-// ===================================================
-
-u64 _Map_hash_ptr_and_size(void *ptr, u64 size) {
-    u8 *u8_ptr = (u8*)ptr;
-    u64 h = 1103;
-    for (u64 i = 0; i < size; i++) h = h * 47 + u8_ptr[i];
-
-    // Do not return tombstone hashs.
-    if ((h == HASH_UNALLOCATED) || (h == HASH_DEAD)) {
-        return 27644437;
-    } else {
-        return h;
-    }
-}
-
-s64 _Map_maybe_get_index_of_key(Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size) {
-    if (table_size == 0) return -1;
-
-    // this probe strategy covers all positions when its a power of 2
-    ASSERT(Is_Pow_2(table_size));
-    u64 incr = 1;
-    u64 pos = hash % table_size; // this could be (hash & (capacity-1)).
-
-    while (table[pos].hash != HASH_UNALLOCATED) {
-        Map_Hash_Entry entry = table[pos];
-
-        // this is incorrect when the key is a string. maybe a bool?
-        void *entry_key = ((u8*)kv_array) + (entry.index * kv_pair_size);
-
-        // check the hashes for speed, then check the actual keys
-        if ((entry.hash != HASH_DEAD) && (entry.hash == hash) && Mem_Eq(key, entry_key, key_size)) {
-            return (s64) pos;
-        }
-
-        pos = (pos + incr) % table_size;
-        incr += 1;
-        ASSERT(incr < 512); // what are the odds for 512 hash collisions in a row?
-    }
-
-    return (s64) pos;
-}
-
-s64 _Map_get_index_of_key_in_table(Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size) {
-    s64 index = _Map_maybe_get_index_of_key(table, table_size, kv_array, hash, key, key_size, kv_pair_size);
-
-    if (index == -1)                            return -1;
-    if (table[index].hash == HASH_UNALLOCATED)  return -1;
-    if (table[index].hash == HASH_DEAD)         return -1;
-
-    return index;
-}
-
-s64 _Map_get_index_of_key_in_items(Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size) {
-    s64 index_in_table = _Map_get_index_of_key_in_table(table, table_size, kv_array, hash, key, key_size, kv_pair_size);
-
-    if (index_in_table == -1) return -1;
-
-    return (s64) table[index_in_table].index;
-}
-
-void *_Map_get_pointer_to_pair_in_items(Map_Hash_Entry *table, u64 table_size, void *kv_array, u64 hash, void *key, u64 key_size, u64 kv_pair_size) {
-    s64 index_in_items = _Map_get_index_of_key_in_items(table, table_size, kv_array, hash, key, key_size, kv_pair_size);
-
-    if (index_in_items == -1) return NULL;
-
-    return ((u8*)kv_array) + ((u64)index_in_items * kv_pair_size);
-}
-
-void *_Map_Grow(Map_Header *header, void *kv_array, u64 key_size, u64 kv_pair_size, u64 count) {
-    if (count > header->capacity) {
-        u64 old_table_size = header->capacity * Map_Table_Size_Multiplier;
-
-        u64 new_capacity = header->capacity == 0 ? 32 : header->capacity * 2;
-        while (new_capacity < count) new_capacity *= 2;
-
-        u64 new_table_size = new_capacity * Map_Table_Size_Multiplier;
-
-        void *new_kv_array;
-        Map_Hash_Entry *new_table;
-        if (header->allocator) {
-            // do we care about proper alignment? Nah
-            // new_kv_array = Arena_Alloc(header->allocator, new_capacity * kv_pair_size);
-            // new_table    = Arena_Alloc_Array(header->allocator, new_table_size, Map_Hash_Entry);
-            new_kv_array = Arena_Alloc(header->allocator, new_capacity * kv_pair_size);
-            new_table    = Arena_Alloc(header->allocator, new_table_size * sizeof(Map_Hash_Entry), .alignment = Alignof(Map_Hash_Entry));
-        } else {
-            new_kv_array = BESTED_MALLOC(new_capacity * kv_pair_size);
-            new_table    = (Map_Hash_Entry*) BESTED_MALLOC(new_table_size * sizeof(Map_Hash_Entry));
-        }
-
-
-        // we need to copy over all the keys and shit.
-        Mem_Copy(new_kv_array, kv_array, kv_pair_size * header->count);
-
-        // re-input the hashes into the new_table
-        for (u64 i = 0; i < old_table_size; i++) {
-            Map_Hash_Entry entry = header->table[i];
-            // this is incorrect when the key is a string. maybe a bool?
-            void *entry_key = ((u8*)kv_array) + (entry.index * kv_pair_size);
-
-            if (entry.hash == HASH_UNALLOCATED || entry.hash == HASH_DEAD) continue;
-
-            s64 new_table_index = _Map_maybe_get_index_of_key(new_table, new_table_size, kv_array, entry.hash, entry_key, key_size, kv_pair_size);
-            ASSERT(new_table_index >= 0);
-
-            ASSERT(new_table[new_table_index].hash == HASH_UNALLOCATED);
-            new_table[new_table_index] = entry;
-        }
-
-        header->capacity = new_capacity;
-        header->table = new_table;
-        kv_array = new_kv_array;
-    }
-
-    return kv_array;
-}
-
-void *_Map_Put(Map_Header *header, void *kv_array, void *key, u64 key_size, void *kv_pair, u64 kv_pair_size) {
-    kv_array = _Map_Grow(header, kv_array, key_size, kv_pair_size, header->count + 1);
-
-    u64 hash = _Map_hash_ptr_and_size(key, key_size);
-    s64 index_in_table = _Map_maybe_get_index_of_key(header->table, Map_Table_Size(header), kv_array, hash, key, key_size, kv_pair_size);
-
-    if (header->table[index_in_table].hash == HASH_UNALLOCATED) {
-        header->table[index_in_table].hash = hash;
-        header->table[index_in_table].index = header->count;
-
-        Mem_Copy(((u8*)kv_array) + (header->count * kv_pair_size), kv_pair, kv_pair_size);
-        header->count += 1;
-
-
-    } else {
-        // this key was already in the hashmap.
-        ASSERT(header->table[index_in_table].hash == hash);
-
-        u64 index_in_kv_pair_array = header->table[index_in_table].index;
-        Mem_Copy(((u8*)kv_array) + (index_in_kv_pair_array * kv_pair_size), kv_pair, kv_pair_size);
-
-        // dont increment the header->count.
-        // the array might erroneously grow from this. i do not care.
-    }
-
-    return kv_array;
-}
-
-
-
-// ===================================================
 //             Some Common Functions
 // ===================================================
 
@@ -2285,43 +2923,6 @@ const char *print_f64   (void *_x) { f64 x    = *(f64*)   _x; return temp_sprint
 const char *print_bool  (void *_x) { bool x   = *(bool*)  _x; return x ? "true" : "false"; }
 
 const char *print_string(void *_x) { String x = *(String*)_x; return temp_sprintf("\""S_Fmt"\"", S_Arg(x)); }
-
-
-// const char *print_s64_array(void *_array) {
-//     String_Builder sb = ZEROED;
-
-//     s64_Array array = *(s64_Array*)_array;
-//     String_Builder_printf("{\n    ");
-//     for (u64 i = 0; i < array.count; i++) {
-//         if (i != 0 && i % 10 == 0) String_Builder_printf("\n    ");
-//         String_Builder_printf("%6ld, ", array.items[i]);
-//     }
-//     String_Builder_printf("\n}");
-
-
-//     const char *result = String_Builder_To_String(&sb);
-//     SB_Free(&sb);
-//     return result;
-// }
-
-// const char *print_string_array(void *_array) {
-//     String_Array array = *(String_Array*)_array;
-
-//     String_Builder sb = ZEROED;
-
-//     String_Builder_printf(&sb, "{\n    ");
-//     for (u64 i = 0; i < array.count; i++) {
-//         String_Builder_printf(&sb, "    ");
-//         String_Builder_printf(&sb, "%s,\n", print_string(&array.items[i]));
-//     }
-//     String_Builder_printf(&sb, "}");
-
-//     // this is malloc'd, TODO think about
-//     String result = String_Builder_To_String(&sb);
-//     SB_Free(&sb);
-//     return result.data;
-
-// }
 
 
 
