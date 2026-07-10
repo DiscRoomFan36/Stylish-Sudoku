@@ -42,8 +42,8 @@ typedef Array(Vector2) Vector2_Array;
 #include "logging.h"
 
 // sudoku stuff
-#include "sudoku_grid.h"
 #include "sudoku_solver/sudoku_solver.h"
+#include "sudoku_grid.h"
 
 
 
@@ -821,8 +821,8 @@ void do_one_frame() {
 
         { // Undo / Redo
             // TODO have these in the same row, side by side.
-            bool do_undo = ui_button("Undo Ctrl-Z", &layout_button_area);
-            bool do_redo = ui_button("Redo Ctrl-X", &layout_button_area);
+            bool do_undo = ui_button("Undo (Ctrl-Z)", &layout_button_area);
+            bool do_redo = ui_button("Redo (Ctrl-X)", &layout_button_area);
 
             do_undo = do_undo || (input->keyboard.control_down && input->keyboard.key.z_pressed);
             // TODO cntl-x should be cut, but we dont have that yet.

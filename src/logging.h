@@ -211,7 +211,7 @@ internal String_Array _wrap_text_with_font_and_size(String text, Font_And_Size f
             }
 
 
-            const char *checking_c_str = temp_String_To_C_Str(checking_line_with_added);
+            const char *checking_c_str = temp_C_Str_From_String(checking_line_with_added);
             Vector2 text_size = MeasureTextEx(font_and_size.font, checking_c_str, font_and_size.size, 0);
 
             if (text_size.x > max_width) {
@@ -375,7 +375,7 @@ void draw_logger_frame(s32 x, s32 y) {
 
             } else {
                 // not cool, but what can we really do?
-                const char *message = temp_String_To_C_Str(line);
+                const char *message = temp_C_Str_From_String(line);
                 DrawTextEx(font_and_size.font, message, position, font_and_size.size, 0, text_color);
                 // TODO do this better
                 position.y += font_and_size.size;

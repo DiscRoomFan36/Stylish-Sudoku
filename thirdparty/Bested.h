@@ -4,9 +4,9 @@
 // Author   - Fletcher M
 //
 // Created  - 04/08/25
-// Modified - 22/04/26
+// Modified - 08/06/26
 //
-// Version  - 1.2.0
+// Version  - 1.4.0
 //
 // Make sure to...
 //      #define BESTED_IMPLEMENTATION
@@ -102,14 +102,14 @@ typedef int32_t         s32;
 typedef int16_t         s16;
 typedef int8_t          s8;
 
+typedef float           f32;
+typedef double          f64;
+
 // fixed width bool types, might be useful, but probably not.
 typedef u64             b64;
 typedef u32             b32;
 typedef u16             b16;
 typedef u8              b8;
-
-typedef float           f32;
-typedef double          f64;
 
 // Turn your unknown size enums into known size enums
 #define enum8(type)     u8
@@ -125,6 +125,44 @@ typedef double          f64;
 
 // control flow helper, useful to define more of these for more specific cases.
 #define defer_return(res) do { result = (res); goto defer; } while (0)
+
+//
+// control flow helper,
+//
+// allows you to call 2 functions,
+// one at the start of a scope, one at the end.
+// while being able to put them next to each other.
+// Increases binding energy.
+//
+// Examples:
+// ```
+// // holding a mutex
+// Defer_Scope(Hold_Mutex(&mutex), Release_Mutex(&mutex)) {
+//     // mutex stuff
+// }
+// ```
+//
+//
+// A Raylib example:
+// ```
+// Defer_Scope(BeginCameraMode(camera), EndCameraMode()) {
+//     // drawing stuff
+// }
+//
+// // or a cool macro version
+// #define Camera_Mode_Scope(camera) Defer_Scope(BeginCameraMode(camera), EndCameraMode())
+// Camera_Mode_Scope(camera) {
+//     // drawing stuff
+// }
+// ```
+//
+// Caution:
+// be careful when using control flow statements when in a defer scope.
+//
+// `return` and `break` will skip the deinit.
+// use `continue` to exit the scope immediately.
+//
+#define Defer_Scope(init, deinit) for (int __i = ((init), 0); __i != 1; __i = 1, (deinit))
 
 
 // I always forget how to call typeof()
@@ -478,8 +516,8 @@ typedef struct {
 // Allocate some memory in a arena, uses macro tricks to give you more options.
 void *_Arena_Alloc(Arena *arena, u64 size_in_bytes, Arena_Alloc_Opt opt, Source_Code_Location caller_location);
 
-#define Arena_Alloc(arena, size, ...)      _Arena_Alloc((arena), (size), (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = true, __VA_ARGS__ }, Get_Source_Code_Location())
-#define Arena_Alloc_Struct(arena, type, ...)                         (type *)Arena_Alloc((arena), sizeof(type), .alignment = Alignof(type), ##__VA_ARGS__)
+#define Arena_Alloc(arena, size, ...)                   _Arena_Alloc((arena), (size),       (Arena_Alloc_Opt){.alignment = Default_Alignment, .clear_to_zero = true, __VA_ARGS__}, Get_Source_Code_Location())
+#define Arena_Alloc_Struct(arena, type, ...)    (type *)_Arena_Alloc((arena), sizeof(type), (Arena_Alloc_Opt){.alignment = Alignof(type),     .clear_to_zero = true, __VA_ARGS__}, Get_Source_Code_Location())
 
 
 
@@ -1018,8 +1056,8 @@ String  String_From_C_Str(const char *str);
 
 
 // will use BESTED_MALLOC() if allocator is NULL
-const char *String_To_C_Str(String s, Arena *allocator);
-const char *temp_String_To_C_Str(String s);
+const char *C_Str_From_String(String s, Arena *allocator);
+const char *temp_C_Str_From_String(String s);
 
 
 typedef struct {
@@ -1821,34 +1859,53 @@ internal void *Hash_Map_Maybe_Get_Entry(Generic_Hash_Map *hash_map, void *key, u
     ASSERT(hash_map);
     ASSERT(key);
 
-    // don't give this an invalid hash.
+    // don't give this an invalid hash. (0 or 1)
     ASSERT(!Hash_Map_Hash_Is_Bad(hash));
 
+    // this is the only case where this function returns NULL,
+    // and it tells downstream functions that the Hash_Map needs to grow first.
     if (hash_map->capacity == 0) return NULL;
 
-    // gonna need this to check if keys are equal.
+    // gonna need this to check if keys are equal, so grab the equality function.
     Equality_Function equality_function = hash_map->eq_function ? hash_map->eq_function : Hash_Map_Default_Equality_Function;
 
     // must be true, or my probe strategy will not cover every cell.
     ASSERT(Is_Pow_2(hash_map->capacity));
-    u64 increment   = 1;
+    u64 increment   = 0; // '0' <- trick to make the while loop flow better.
     u64 entry_index = hash % hash_map->capacity;
 
+    s64 first_dead_entry_index = -1;
+
     while (true) {
-        void *entry = (u8*)hash_map->entries + entry_index * properties.entry_size;
-
-        // this is a valid position to put something in. break
-        if (HASH_MAP_HASH_FROM_ENTRY(entry) == Hash_Map_UNALLOCATED) break;
-
-        // check if this is the same key.
-        if (HASH_MAP_HASH_FROM_ENTRY(entry) == hash && equality_function(key, (u8*)entry + properties.key_offset_in_entry, properties.key_size)) {
-            return entry;
-        }
-
+        // wont do anything on first go around.
         entry_index = (entry_index + increment) % hash_map->capacity;
         increment += 1;
         ASSERT(increment < 4096); // what are the odds for 4096 hash collisions in a row? something bad must have happened.
+
+        void *entry = (u8*)hash_map->entries + entry_index * properties.entry_size;
+
+        u64 entry_hash = HASH_MAP_HASH_FROM_ENTRY(entry);
+
+        // this is a valid position to put something in. break
+        if (entry_hash == Hash_Map_UNALLOCATED) break;
+
+        // if its dead, we take a note of it and move on.
+        if (entry_hash == Hash_Map_DEAD) {
+            if (first_dead_entry_index == -1) first_dead_entry_index = entry_index;
+            continue;
+        }
+
+        // check if this is the same hash
+        if (entry_hash != hash) { continue; }
+
+        // finally, check if this is the same key, and if so: return the entry
+        if (equality_function(key, (u8*)entry + properties.key_offset_in_entry, properties.key_size)) {
+            return entry;
+        }
     }
+
+    // take the first dead entry instead of using the unallocated we found.
+    if (first_dead_entry_index != -1) entry_index = first_dead_entry_index;
 
     // TODO maybe better to return a DEAD position? we can keep track if we have seen one.
     return (u8*)hash_map->entries + entry_index * properties.entry_size;
@@ -1910,24 +1967,47 @@ internal void *Generic_Hash_Map_Get_Entry_For_Value(Generic_Hash_Map *hash_map, 
     return entry;
 }
 
-internal void Hash_Map_Maybe_Grow(Generic_Hash_Map *hash_map, u64 be_able_to_fit_at_least, Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location) {
+// returns weather or not it "grew" / changed backing arrays
+internal bool Hash_Map_Maybe_Grow(Generic_Hash_Map *hash_map, u64 be_able_to_fit_at_least, Hash_Map_Key_Value_Type_Properties properties, Source_Code_Location caller_location) {
     ASSERT(hash_map);
 
     const u64 HASH_MAP_GROWTH_PERCENT = 75;
 
     // only grow array when at nearing capacity, not at capacity.
-    if (be_able_to_fit_at_least < hash_map->capacity * HASH_MAP_GROWTH_PERCENT / 100) return;
+    if (be_able_to_fit_at_least * 100 < hash_map->capacity * HASH_MAP_GROWTH_PERCENT) return false;
 
     void *old_entries = hash_map->entries;
     u64   old_size    = hash_map->capacity;
-    u64   old_count = hash_map->count;
+    u64   old_count   = hash_map->count;
 
     if (old_size == 0) ASSERT(old_entries == NULL);
     else               ASSERT(old_entries != NULL);
 
+    //
+    // remove dead entries from the count if there are a lot of them.
+    // The Hash_Map will only grow if there are not dead things cloging up the map.
+    //
+    // this function is only called 2 placed, 'Generic_Hash_Map_Put_Or_Get_Default_Helper()' or 'Hash_Map_Reserve()'
+    //
+    // 'Generic_Hash_Map_Put_Or_Get_Default_Helper()' wants to subtract dead_count from this.
+    //
+    // 'Hash_Map_Reserve()' dose not. maybe. '_Reserve()' is usually called at the start of the Hash_Map's life, so dead_count would be 0...
+    //
+    // TODO figure out what this dose to Hash_Map_Reserve
+    //
+    // only care if over 10%
+    #define HASH_MAP_DEAD_COUNT_CARE_ABOUT_PERCENT 10
+    if (hash_map->dead_count * 100 > hash_map->capacity * HASH_MAP_DEAD_COUNT_CARE_ABOUT_PERCENT) {
+        //
+        // this is saying
+        // "if there are not many dead, double the capacity, else stay the same capacity."
+        //
+        be_able_to_fit_at_least -= hash_map->dead_count;
+    }
+
     // grow array capacity.
-    hash_map->capacity = hash_map->capacity != 0 ? hash_map->capacity * 2 : HASH_MAP_INITAL_CAPACITY;
-    while (be_able_to_fit_at_least >= hash_map->capacity * HASH_MAP_GROWTH_PERCENT / 100) {
+    if (hash_map->capacity == 0)    hash_map->capacity = HASH_MAP_INITAL_CAPACITY;
+    while (be_able_to_fit_at_least * 100 >= hash_map->capacity * HASH_MAP_GROWTH_PERCENT) {
         hash_map->capacity *= 2;
     }
 
@@ -1991,6 +2071,8 @@ internal void Hash_Map_Maybe_Grow(Generic_Hash_Map *hash_map, u64 be_able_to_fit
         // its ok to free a null pointer.
         BESTED_FREE(old_entries);
     }
+
+    return true;
 }
 
 
@@ -2013,20 +2095,32 @@ internal void *Generic_Hash_Map_Put_Or_Get_Default_Helper(Generic_Hash_Map *hash
 
     u64 key_hash = Hash_Map_Safely_Get_Hash(hash_map, key, properties);
 
-    // This might make the hash map grow, even when in
-    // some cases it shouldn't, do I care?
-    Hash_Map_Maybe_Grow(hash_map, hash_map->dead_count + hash_map->count + 1, properties, caller_location);
-
-    // must be space to put this new thing.
-    ASSERT(hash_map->capacity > 0);
-
+    // getting the entry up front, we might need to do this later if this triggers a regrow.
     void *entry = Hash_Map_Maybe_Get_Entry(hash_map, key, key_hash, properties);
 
-    // we just grew the array, this must either be
-    // the correct key, or something unallocated.
-    ASSERT(entry != NULL);
+    // check if either the hash_map is empty, or we got a new UNALLOCATED position.
+    bool maybe_need_to_grow = (entry == NULL); // aka hash_map.capacity == 0
+    if (entry != NULL) {
+        maybe_need_to_grow = maybe_need_to_grow || (HASH_MAP_HASH_FROM_ENTRY(entry) == Hash_Map_UNALLOCATED);
+    }
 
-    if (HASH_MAP_HASH_FROM_ENTRY(entry) == Hash_Map_UNALLOCATED) {
+    if (maybe_need_to_grow) {
+        // maybe we need to maybe grow the array.
+        bool the_array_grew = Hash_Map_Maybe_Grow(hash_map, hash_map->dead_count + hash_map->count + 1, properties, caller_location);
+        if (the_array_grew) {
+            // if it did change, we must re-hash, a tragedy to be sure.
+            // but this only happens very infrequently. so its fine.
+            entry = Hash_Map_Maybe_Get_Entry(hash_map, key, key_hash, properties);
+
+            // we just grew the array, this must either be
+            // the correct key, or something unallocated.
+            ASSERT(entry != NULL);
+        }
+        // else { we can just reuse the old entry }
+    }
+
+    u64 entry_hash = HASH_MAP_HASH_FROM_ENTRY(entry);
+    if (entry_hash == Hash_Map_UNALLOCATED || entry_hash == Hash_Map_DEAD) {
         // set hash.
         ((Generic_Entry*) entry)->hash = key_hash;
         // set key
@@ -2037,6 +2131,8 @@ internal void *Generic_Hash_Map_Put_Or_Get_Default_Helper(Generic_Hash_Map *hash
         }
 
         hash_map->count += 1;
+        // if we are stomping over a dead entry, remember to remove 1 from the dead count.
+        if (entry_hash == Hash_Map_DEAD) hash_map->dead_count -= 1;
     }
 
     return (u8*)entry + properties.value_offset_in_entry;
@@ -2071,7 +2167,7 @@ void Generic_Hash_Map_Clear(Generic_Hash_Map *hash_map, Hash_Map_Key_Value_Type_
 
     // set all entries to unallocated.
     for (u64 i = 0; i < hash_map->capacity; i++) {
-        Generic_Entry *entry = (void*)((u8*)hash_map->entries + i * properties.entry_size);
+        Generic_Entry *entry = (Generic_Entry*)((u8*)hash_map->entries + i * properties.entry_size);
         entry->hash = Hash_Map_UNALLOCATED;
     }
 
@@ -2112,6 +2208,8 @@ void Generic_Hash_Map_Reserve(Generic_Hash_Map *hash_map, u64 num_to_reserve, Ha
     ASSERT(hash_map);
 
     Hash_Map_Maybe_Grow(hash_map, num_to_reserve, properties, caller_location);
+    // // '+ hash_map->dead_count' is a hack, because
+    // Hash_Map_Maybe_Grow(hash_map, num_to_reserve + hash_map->dead_count, properties, caller_location);
 }
 
 bool Generic_Hash_Map_Remove(Generic_Hash_Map *hash_map, void *key, Hash_Map_Key_Value_Type_Properties properties) {
@@ -2207,15 +2305,15 @@ u64 Hash_Map_Hash_String  (void *key, u64 size) {
     ASSERT(key);
     ASSERT(size == sizeof(String));
 
-    String *string = key;
+    String *string = (String*) key;
     return Hash_Map_Default_Hash_Function(string->data, string->length);
 }
 bool Hash_Map_Eq_String(void *key_a, void *key_b, u64 size) {
     ASSERT(key_a && key_b);
     ASSERT(size == sizeof(String));
 
-    String *string_a = key_a;
-    String *string_b = key_b;
+    String *string_a = (String*) key_a;
+    String *string_b = (String*) key_b;
     return String_Eq(*string_a, *string_b);
 }
 
@@ -2224,7 +2322,10 @@ u64 Hash_Map_Hash_C_String  (void *key, u64 size) {
     ASSERT(key);
     ASSERT(size == sizeof(const char *));
 
-    const char **c_str = key;
+    const char **c_str = (const char **) key;
+    // this is also a funny way of doing this cast... it it better?
+    // const char **c_str = (Typeof(c_str)) key;
+
     // yeah I know, this passes over the string twice,
     //
     // I do not care.
@@ -2237,8 +2338,8 @@ bool Hash_Map_Eq_C_String(void *key_a, void *key_b, u64 size) {
     ASSERT(key_a && key_b);
     ASSERT(size == sizeof(const char *));
 
-    const char **c_str_a = key_a;
-    const char **c_str_b = key_b;
+    const char **c_str_a = (const char **) key_a;
+    const char **c_str_b = (const char **) key_b;
     // it would be so much better if we had a way
     // of telling what the size of the string was...
     String string_a = S(*c_str_a);
@@ -2257,7 +2358,7 @@ u64 Hash_Function_fnv1a(void *key, u64 size) {
     // 64 bit FNV_prime = 2^40 + 2^8 + 0xb3 = 1099511628211
     const u64 FNV_prime  =        1099511628211ULL;
 
-    u8 *u8_ptr = key;
+    u8 *u8_ptr = (u8*) key;
     u64 hash = FNV_offset;
     for (u64 i = 0; i < size; i++) {
         hash = (hash ^ u8_ptr[i]) * FNV_prime;
@@ -2289,13 +2390,13 @@ String String_From_C_Str(const char *str) {
     };
     return result;
 }
-const char *String_To_C_Str(String s, Arena *allocator) {
+const char *C_Str_From_String(String s, Arena *allocator) {
     return String_Duplicate(s, .allocator = allocator, .null_terminate = true).data;
 }
 
 #define TEMP_STRING_TO_C_STR_NUM_BUFFERS    64
 #define TEMP_STRING_TO_C_STR_MAX_LENGTH     (4 * KILOBYTE)
-const char *temp_String_To_C_Str(String s) {
+const char *temp_C_Str_From_String(String s) {
     local_persist char buffers[TEMP_STRING_TO_C_STR_NUM_BUFFERS][TEMP_STRING_TO_C_STR_MAX_LENGTH];
     local_persist u32  current_buffer_index = 0;
 
@@ -2463,7 +2564,7 @@ Split_Once_Result Split_Once(String string, String separator) {
         return result;
     } else {
         Split_Once_Result result = {
-            .left  = { .data = string.data, .length = index },
+            .left  = { .data = string.data, .length = (u64) index },
             .right = {
                 .data   = string.data   +  index + separator.length ,
                 .length = string.length - (index + separator.length),
@@ -2604,7 +2705,7 @@ internal Character_Buffer *String_Builder_Internal_Maybe_Expand_To_Fit(String_Bu
         if (sb->buffer_index % STRING_BUILDER_NUM_BUFFERS == 0) {
             if (!sb->current_segment->next) {
                 if (sb->allocator) {
-                    sb->current_segment->next = (Segment*) Arena_Alloc_Struct(sb->allocator, Segment);
+                    sb->current_segment->next = Arena_Alloc_Struct(sb->allocator, Segment);
                 } else {
                     sb->current_segment->next = (Segment*) BESTED_MALLOC(sizeof(Segment));
                     Mem_Zero(sb->current_segment->next, sizeof(Segment));
@@ -2830,11 +2931,11 @@ String Read_Entire_File(String filename, Arena *arena) {
 
     // pretty sure PATHMAX is less than TEMP_STRING_TO_C_STR_MAX_LENGTH
     if (filename.length >= TEMP_STRING_TO_C_STR_MAX_LENGTH) {
-        fprintf(stderr, "filename length is bigger than temp_String_To_C_Str() storage, was %zu, witch is probably bigger than PATH_MAX on a lot of OS's", filename.length);
+        fprintf(stderr, "filename length is bigger than temp_C_Str_From_String() storage, was %zu, witch is probably bigger than PATH_MAX on a lot of OS's", filename.length);
         return result;
     }
 
-    FILE *file = fopen(temp_String_To_C_Str(filename), "rb");
+    FILE *file = fopen(temp_C_Str_From_String(filename), "rb");
 
     if (file) {
         fseek(file, 0, SEEK_END);
@@ -2846,7 +2947,7 @@ String Read_Entire_File(String filename, Arena *arena) {
             if (arena) {
                 result.data = (char*) Arena_Alloc(arena, result.length+1, .clear_to_zero = false);
             } else {
-                result.data = BESTED_MALLOC(result.length+1);
+                result.data = (char*) BESTED_MALLOC(result.length+1);
             }
             // result.data = (char*) Arena_Alloc_Clear(arena, result.length+1, false);
             if (result.data) {
@@ -2922,7 +3023,7 @@ const char *print_f64   (void *_x) { f64 x    = *(f64*)   _x; return temp_sprint
 
 const char *print_bool  (void *_x) { bool x   = *(bool*)  _x; return x ? "true" : "false"; }
 
-const char *print_string(void *_x) { String x = *(String*)_x; return temp_sprintf("\""S_Fmt"\"", S_Arg(x)); }
+const char *print_string(void *_x) { String x = *(String*)_x; return temp_sprintf("\"" S_Fmt "\"", S_Arg(x)); }
 
 
 
