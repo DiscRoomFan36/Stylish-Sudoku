@@ -857,7 +857,7 @@ void do_one_frame() {
             if (!changed)   log_error("randomly generated sudoku was the same as the current grid?");
         }
 
-        // button to solve sudoku
+        // button to solve sudoku instantly.
         if (ui_button("Solve Sudoku", &layout_button_area)) {
             Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
 
@@ -885,6 +885,24 @@ void do_one_frame() {
                 } break;
                 case RFSI_NONE: { UNREACHABLE(); } break;
                 }
+            }
+        }
+
+        local_persist bool auto_solve_sudoku = true;
+        // ui_toggle("Auto Solve Sudoku", &layout_button_area, &auto_solve_sudoku);
+
+        // would have liked this to happen after the user places the digit, (aka on the same frame)
+        //
+        // there will be a 1 frame delay for this.
+        if (auto_solve_sudoku) {
+            if (!context->sudoku->auto_solver.have_solver_result) {
+                Input_Sudoku_Puzzle input_sudoku_puzzle = sudoku_grid_to_input_sudoku_puzzle(&context->sudoku->grid);
+
+                // this is on the main thread for now. its fast enough.
+                Sudoku_Solver_Result sudoku_solver_result = Solve_Sudoku(input_sudoku_puzzle);
+
+                context->sudoku->auto_solver.result_from_solving_sudoku = sudoku_solver_result;
+                context->sudoku->auto_solver.have_solver_result = true;
             }
         }
     }
