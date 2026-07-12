@@ -197,6 +197,9 @@ internal bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku);
 // just pass all key events into this thing. (if its selected or something)
 internal void sudoku_maybe_handle_key_press(Sudoku *sudoku, Input_Key_Event key);
 
+// call when something with the grid changes, or just to touch the grid.
+internal void sudoku_grid_changed(Sudoku *sudoku);
+
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -317,7 +320,7 @@ bool Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(Sudoku *sudo
     return true;
 }
 
-internal void sudoku_grid_changed(Sudoku *sudoku) {
+void sudoku_grid_changed(Sudoku *sudoku) {
     sudoku->auto_solver.have_solver_result = false;
 }
 

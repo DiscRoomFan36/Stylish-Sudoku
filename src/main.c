@@ -890,6 +890,10 @@ void do_one_frame() {
 
         local_persist bool auto_solve_sudoku = true;
         // ui_toggle("Auto Solve Sudoku", &layout_button_area, &auto_solve_sudoku);
+        if (ui_button("Auto Solve Sudoku", &layout_button_area)) {
+            auto_solve_sudoku = !auto_solve_sudoku;
+            sudoku_grid_changed(context->sudoku);
+        }
 
         // would have liked this to happen after the user places the digit, (aka on the same frame)
         //
