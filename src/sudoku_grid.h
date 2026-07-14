@@ -760,7 +760,13 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     // drawn a million times.
     if (debug_struct->draw_cursor_position) {
         Rectangle rec = get_cell_bounds_with_bounds(draw_bounds, sudoku->cursor.x, sudoku->cursor.y);
-        DebugDraw(DrawCircle(rec.x + rec.width/2, rec.y + rec.height/2, rec.height/3, ColorAlpha(RED, 0.8)));
+        Debug_Draw() {
+            DrawCircle(
+                rec.x + rec.width/2, rec.y + rec.height/2,
+                rec.height/3,
+                ColorAlpha(RED, 0.8)
+            );
+        }
     }
 
 
@@ -775,7 +781,7 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         // TODO introduce Vec2i into this code.
         s8 click_i, click_j;
 
-        // phase 1
+        // mouse dragging - phase 1 - update selection
         FOREACH_IJ_OF_SUDOKU(i, j) {
             Sudoku_Cell *cell       = get_cell(&sudoku->grid, i, j);
             Rectangle    cell_bounds = get_cell_bounds_with_bounds(draw_bounds, i, j);
@@ -806,36 +812,36 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         }
 
 
-        // phase 2
+        // mouse dragging - phase 2 - dragging over smaller hitbox's.
         //
         // TODO dragging should use a line from the last position of
         // the mouse to the new position of the mouse.
 
-        // NOTE this begin/end TextureMode stuff is because if it was inside
+        // NOTE this Debug_Draw() stuff is because if it was inside
         // this 9*9 loop, it drags the fps down to 30.
-        if (debug_struct->draw_smaller_cell_hitbox) BeginTextureMode(debug_struct->debug_texture);
-        FOREACH_IJ_OF_SUDOKU(i, j) {
-            Sudoku_Cell *cell       = get_cell(&sudoku->grid, i, j);
-            Rectangle    cell_bounds = get_cell_bounds_with_bounds(draw_bounds, i, j);
+        Debug_Draw() {
+            FOREACH_IJ_OF_SUDOKU(i, j) {
+                Sudoku_Cell *cell       = get_cell(&sudoku->grid, i, j);
+                Rectangle    cell_bounds = get_cell_bounds_with_bounds(draw_bounds, i, j);
 
-            // selected stuff, mouse dragging
+                // selected stuff, mouse dragging
 
-            // dose this make sense at smaller sizes?
-            //
-            // TODO check if this works at smaller sizes
-            const f64 cell_smaller_hitbox_size = draw_bounds.cell_size / 8;
+                // dose this make sense at smaller sizes?
+                //
+                // TODO check if this works at smaller sizes
+                const f64 cell_smaller_hitbox_size = draw_bounds.cell_size / 8;
 
-            Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, cell_smaller_hitbox_size);
-            if (debug_struct->draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
+                Rectangle smaller_hitbox = ShrinkRectangle(cell_bounds, cell_smaller_hitbox_size);
+                if (debug_struct->draw_smaller_cell_hitbox) DrawRectangleRec(smaller_hitbox, ColorAlpha(YELLOW, 0.5));
 
-            if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
-                cell->is_selected = when_dragging_to_set_selected_to;
-                // this sets the cursor when dragging, the clicking
-                // code would not handle this.
-                sudoku->cursor.x = i; sudoku->cursor.y = j;
+                if (input->mouse.left.down && CheckCollisionPointRec(input->mouse.pos, smaller_hitbox)) {
+                    cell->is_selected = when_dragging_to_set_selected_to;
+                    // this sets the cursor when dragging, the clicking
+                    // code would not handle this.
+                    sudoku->cursor.x = i; sudoku->cursor.y = j;
+                }
             }
         }
-        if (debug_struct->draw_smaller_cell_hitbox) EndTextureMode();
 
 
 
@@ -1172,26 +1178,26 @@ void draw_sudoku_cell(Sudoku *sudoku, u32 i, u32 j, Draw_Sudoku_Boundary draw_bo
             // turning off and on again in such quick succession,
             //
             // these guards will help, but if every cell has colors will still slow down.
-            if (debug_struct->draw_color_points) BeginTextureMode(debug_struct->debug_texture);
+            Debug_Draw() {
 
-            for (u32 point_index = 0; point_index < points_count; point_index++) {
-                f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
-                f32 percent = (f32)point_index / (f32)points_count;
+                for (u32 point_index = 0; point_index < points_count; point_index++) {
+                    f32 offset = TAU * -0.03; // this is gonna help make the lines have a little slant. looks cooler.
+                    f32 percent = (f32)point_index / (f32)points_count;
 
-                // -percent makes the points be done in clockwise order.
-                //
-                // * SUDOKU_CELL_SIZE means that the points are guaranteed to be outside the cell.
-                // (but they could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
-                points[point_index].x = sinf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
-                points[point_index].y = cosf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
+                    // -percent makes the points be done in clockwise order.
+                    //
+                    // * SUDOKU_CELL_SIZE means that the points are guaranteed to be outside the cell.
+                    // (but they could be slightly smaller, SUDOKU_CELL_SIZE*sqrt(2)/2 is the real minimum size)
+                    points[point_index].x = sinf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
+                    points[point_index].y = cosf(-percent * TAU + PI + offset) * draw_bounds.cell_size + draw_bounds.cell_size/2;
 
-                if (debug_struct->draw_color_points) {
-                    Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
-                    DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
+                    if (debug_struct->draw_color_points) {
+                        Color color = theme->sudoku.cell_color_bitfield[color_bits.items[point_index]];
+                        DrawCircleV(Vector2Add(points[point_index], RectangleTopLeft(cell_bounds)), 3, color);
+                    }
                 }
-            }
 
-            if (debug_struct->draw_color_points) EndTextureMode();
+            }
 
 
             Vector2 middle = {draw_bounds.cell_size/2, draw_bounds.cell_size/2};

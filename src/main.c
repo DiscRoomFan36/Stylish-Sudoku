@@ -192,7 +192,10 @@ void init_context(void) {
         // and make debug stuff the most important.
         debug_struct->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
 
-    #define DebugDraw(draw_call) do { BeginTextureMode(get_debug_struct()->debug_texture); (draw_call);  EndTextureMode(); } while (0)
+        #define Debug_Draw()        \
+            Defer_Scope(BeginTextureMode(get_debug_struct()->debug_texture), EndTextureMode())
+
+
 
     }
 
@@ -774,14 +777,16 @@ void do_one_frame() {
 
     { // debug stuff
         // Clear debug to all zero's
-        DebugDraw(ClearBackground((Color){0, 0, 0, 0}));
+        Debug_Draw() { ClearBackground((Color){0, 0, 0, 0}); }
 
         toggle_when_pressed(&debug_struct->draw_smaller_cell_hitbox,    KEY_F1);
         toggle_when_pressed(&debug_struct->draw_cursor_position,        KEY_F2);
         toggle_when_pressed(&debug_struct->draw_color_points,           KEY_F3);
 
         toggle_when_pressed(&debug_struct->draw_fps,                    KEY_F4);
-        if (debug_struct->draw_fps) DebugDraw(DrawFPS(context->window_width - 100, 10));
+        if (debug_struct->draw_fps) Debug_Draw() {
+            DrawFPS(context->window_width - 100, 10);
+        }
 
         toggle_when_pressed(&debug_struct->draw_layout_areas, KEY_F5);
     }
@@ -795,7 +800,7 @@ void do_one_frame() {
     Rectangle layout_button_area = layout_total_area;
 
     if (debug_struct->draw_layout_areas) {
-        DebugDraw(DrawRectangleRec(layout_total_area,  ColorAlpha(BLUE, 0.7)));
+        Debug_Draw() { DrawRectangleRec(layout_total_area,  ColorAlpha(BLUE, 0.7)); }
     }
 
     { // layout_button_area
@@ -922,9 +927,9 @@ void do_one_frame() {
         // take some space to make title.
         Rectangle layout_title_area = layout_take_from(&layout_sudoku_area, LAY_UP, Amount(LAY_IN_PIXELS, theme->title_text_font_size + padding*2));
 
-        if (debug_struct->draw_layout_areas) {
-            DebugDraw(DrawRectangleRec(layout_sudoku_area,  ColorAlpha(RED, 0.7)));
-            DebugDraw(DrawRectangleRec(layout_title_area, ColorAlpha(GREEN, 0.7)));
+        if (debug_struct->draw_layout_areas) Debug_Draw() {
+            DrawRectangleRec(layout_sudoku_area, ColorAlpha(RED, 0.7));
+            DrawRectangleRec(layout_title_area, ColorAlpha(GREEN, 0.7));
         }
 
         // TODO maybe it would be better to pass this in as a argument
@@ -973,6 +978,8 @@ void do_one_frame() {
 
     // draw logged messages.
     draw_logger_frame(10, 40);
+
+    // TODO draw mouse cursor.
 
     // draw the debug stuff.
     DrawTextureRightsideUp(debug_struct->debug_texture.texture, 0, 0);
