@@ -757,6 +757,7 @@ void do_one_frame() {
         context->window_height   = GetScreenHeight();
 
         if (prev_window_width != context->window_width || prev_window_height != context->window_height) {
+            log("Window size changed! (%d, %d)\n", context->window_width, context->window_height);
             UnloadRenderTexture(debug_struct->debug_texture);
             debug_struct->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
         }

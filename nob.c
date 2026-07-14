@@ -334,7 +334,9 @@ bool do_build_wasm(void) {
 
     cmd_append(&cmd, "emcc");
 
-    cmd_append(&cmd, "-o", BUILD_FOLDER"web/sudoku.html");      // Output file, the .html extension determines the files that need to be generated: `.wasm`, `.js` (glue code) and `.html` (optional: `.data`). All files are already configured to just work.
+    #define PROJECT_NAME   "sudoku"
+    #define HTML_FOLDER    BUILD_FOLDER "web/"
+    cmd_append(&cmd, "-o", HTML_FOLDER PROJECT_NAME".html");      // Output file, the .html extension determines the files that need to be generated: `.wasm`, `.js` (glue code) and `.html` (optional: `.data`). All files are already configured to just work.
     cmd_append(&cmd, SRC_FOLDER"main.c");                       // The input files for compilation, in this case just one but it could be multiple code files: `game.c screen_logo.c screen_title.c screen_gameplay.c`
 
     cmd_append(&cmd, "-Os", "-Wall", "-Wextra");                // Some config parameters for the compiler, optimize code for small size and show all warnings generated
@@ -348,7 +350,7 @@ bool do_build_wasm(void) {
 
     cmd_append(&cmd, "-s", "USE_GLFW=3");                       // We tell the linker that the game/library uses GLFW3 library internally, it must be linked automatically (emscripten provides the implementation)
 
-    cmd_append(&cmd, "--shell-file", THIRDPARTY_FOLDER"shell.html");            // All webs need a "shell" structure to load and run the game, by default emscripten has a `shell.html` but we can provide our own
+    cmd_append(&cmd, "--shell-file", RAYLIB_FOLDER"src/minshell.html");         // All webs need a "shell" structure to load and run the game, by default emscripten has a `shell.html` but we can provide our own
 
     cmd_append(&cmd, "-DPLATFORM_WEB");
 
@@ -360,6 +362,9 @@ bool do_build_wasm(void) {
     cmd_append(&cmd, "-s", "ASSERTIONS=1");                 // Enable runtime checks for common memory allocation errors (-O1 and above turn it off)
 
 
+    if (!cmd_run(&cmd)) return false;
+
+    cmd_append(&cmd, "mv", HTML_FOLDER PROJECT_NAME".html", HTML_FOLDER "index.html");
     if (!cmd_run(&cmd)) return false;
 
     return true;
