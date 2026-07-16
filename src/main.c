@@ -915,7 +915,7 @@ void do_one_frame() {
             }
         }
 
-        local_persist bool auto_solve_sudoku = true;
+        local_persist bool auto_solve_sudoku = false;
         // ui_toggle("Auto Solve Sudoku", &layout_button_area, &auto_solve_sudoku);
         if (ui_button("Auto Solve Sudoku", &layout_button_area)) {
             auto_solve_sudoku = !auto_solve_sudoku;
