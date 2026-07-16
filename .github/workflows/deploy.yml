@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install 4.0.21
+          ./emsdk activate 4.0.21
+          source ./emsdk_env.sh
+          cd ..
+          gcc nob.c -o nob
+          ./nob wasm
+        shell: bash
+
+      - name: Show build output (diagnostics)
+        run: |
+          echo "Build output path: $(pwd)/build/web"
+          ls -la build/web || true
+          find build/web -type l -ls || true
+        shell: bash
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./build/web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
