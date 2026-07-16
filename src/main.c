@@ -48,25 +48,7 @@ typedef Array(Vector2) Vector2_Array;
 
 
 
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-//                              Defines
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-
-// square for now, change when adding a control panel.
-#define INITAL_WINDOW_WIDTH         (16*80)
-#define INITAL_WINDOW_HEIGHT        ( 9*80)
-
-#define TARGET_FPS  60
-
-
-
-
+#define TARGET_FPS 60
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
@@ -80,6 +62,8 @@ typedef struct {
     bool draw_cursor_position;
     bool draw_color_points;
     bool draw_fps;
+
+    bool draw_mouse_cursor;
 
     bool draw_layout_areas;
 
@@ -182,6 +166,9 @@ void init_context(void) {
         debug_struct->draw_cursor_position      = false;
         debug_struct->draw_color_points         = false;
         debug_struct->draw_fps                  = false;
+
+        debug_struct->draw_cursor_position      = false;
+
         debug_struct->draw_layout_areas         = false;
 
         // the perhaps better option would be to make DebugDraw## versions of the draw
@@ -282,9 +269,11 @@ int main(void) {
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);  // the context contains the window width/height, and stuff updates dynamically.
     SetTraceLogLevel(LOG_WARNING);          // only show warning or worse logs, the console is being spammed in LOG_INFO mode.
-    InitWindow(INITAL_WINDOW_WIDTH, INITAL_WINDOW_HEIGHT, "Sudoku");
 
+    // init the raylib window.
+    InitWindow(16*80, 9*80, "Sudoku");
 
+    // in my application context
     init_context();
 
     Context *context = get_context();
@@ -319,6 +308,7 @@ int main(void) {
 
 
 #ifdef PLATFORM_WEB
+    printf("Hello WASM!\n");
 
     //
     // function arguments:
@@ -335,6 +325,7 @@ int main(void) {
     UNREACHABLE();
 
 #else
+    printf("Hello Native Window!\n");
 
     // probably could hit 144fps, but maybe later.
     //
@@ -743,6 +734,34 @@ void do_one_frame() {
     Theme        *theme        = get_theme();
     Debug_Struct *debug_struct = get_debug_struct();
 
+#ifdef PLATFORM_WEB
+    {
+        // on the web, the size of the window is not in alignment with what
+        // raylib considers the size of the window. the numbers you supply
+        // to InitWindow() are treated as gospel, setting the ratio of the
+        // window. this ratio is incorrect in most cases, and even when the
+        // browser window size is changed, raylib dose not fix the problem.
+        //
+        // this leads to the mouse being offset from its true position.
+        //
+        // the fix for this is to call SetWindowSize() to get raylib to properly
+        // figure out the size of the window. we only need to call this once,
+        // (as the raylib window size and the browser window size is only
+        // de-synced once at the start of the program.)
+        //
+        // SetWindowSize() actually dose nothing on web platforms, and the
+        // browser immediately sets the window back to the correct size, but
+        // this one touch is enough to fix the bug.
+        //
+        // TODO post an issue to the raylib github.
+        local_persist bool lock = false;
+        if (!lock) {
+            lock = true;
+            SetWindowSize(context->window_width, context->window_height);
+        }
+    }
+#endif
+
     // make sure the sudoku grid did not change between frames.
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
 
@@ -760,7 +779,7 @@ void do_one_frame() {
         context->window_height   = GetScreenHeight();
 
         if (prev_window_width != context->window_width || prev_window_height != context->window_height) {
-            log("Window size changed! (%d, %d)\n", context->window_width, context->window_height);
+            // log("Window size changed! (%d, %d)", context->window_width, context->window_height);
             UnloadRenderTexture(debug_struct->debug_texture);
             debug_struct->debug_texture = LoadRenderTexture(context->window_width, context->window_height);
         }
@@ -788,7 +807,9 @@ void do_one_frame() {
             DrawFPS(context->window_width - 100, 10);
         }
 
-        toggle_when_pressed(&debug_struct->draw_layout_areas, KEY_F5);
+        toggle_when_pressed(&debug_struct->draw_mouse_cursor,           KEY_F5);
+
+        toggle_when_pressed(&debug_struct->draw_layout_areas,           KEY_F6);
     }
 
 
@@ -979,7 +1000,12 @@ void do_one_frame() {
     // draw logged messages.
     draw_logger_frame(10, 40);
 
-    // TODO draw mouse cursor.
+    // debug draw mouse cursor.
+    if (debug_struct->draw_mouse_cursor) Debug_Draw() {
+        Vector2 pos = GetMousePosition();
+        // log("Mouse Position: (%.4f, %.4f)", pos.x, pos.y);
+        DrawCircleV(pos, 5, RED);
+    }
 
     // draw the debug stuff.
     DrawTextureRightsideUp(debug_struct->debug_texture.texture, 0, 0);
