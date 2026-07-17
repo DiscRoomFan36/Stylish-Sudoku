@@ -997,38 +997,6 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
     }
 
 
-
-    // auto solver
-    if (sudoku->auto_solver.have_solver_result) {
-        if (sudoku->auto_solver.result_from_solving_sudoku.sudoku_is_possible) {
-
-            log("sudoku is possible!");
-
-        } else {
-
-            const char *reason_not_possible_string = "NO_REASON_GIVEN";
-            switch (sudoku->auto_solver.result_from_solving_sudoku.reason_not_possible) {
-            case RFSI_NONE: {
-                log_error("no reason for impossibly given?");
-            } break;
-
-            case RFSI_BAD_USER_INPUT:{
-                reason_not_possible_string = "bad user input (aka  its obviously wrong.)";
-            } break;
-            case RFSI_NO_POSSIBLE_SOLUTION: {
-                reason_not_possible_string = "not possible with given restraints.";
-            } break;
-            case RFSI_MULTIPLE_SOLUTIONS:{
-                reason_not_possible_string = "multiple solutions";
-            } break;
-
-            default: UNREACHABLE();
-            }
-
-            log("Sudoku is not possible, reason: %s", reason_not_possible_string);
-        }
-    }
-
     ////////////////////////////////////////////////
     //             draw sudoku grid
     ////////////////////////////////////////////////
