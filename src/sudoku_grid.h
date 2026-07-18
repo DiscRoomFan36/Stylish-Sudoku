@@ -202,6 +202,13 @@ internal void sudoku_grid_changed(Sudoku *sudoku);
 
 
 
+Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid);
+// keeps is_selected and is_hovered, but thats it.
+void place_digit_grid_into_sudoku_grid(Sudoku_Digit_Grid digit_grid, Sudoku_Grid *grid, bool keep_markings);
+
+void clear_sudoku_grid(Sudoku_Grid *grid);
+
+
 ///////////////////////////////////////////////////////////////////////////
 //                          Save / Load Sudoku
 ///////////////////////////////////////////////////////////////////////////
@@ -366,6 +373,66 @@ bool sudoku_maybe_add_grid_into_undo_buffer(Sudoku *sudoku) {
 
     return true;
 }
+
+
+
+Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid) {
+    Input_Sudoku_Puzzle input_sudoku_puzzle = ZEROED;
+    static_assert(SUDOKU_SIZE == NUM_DIGITS, "these are the same for now, maybe in the future we will have different sized grids for things.");
+
+    FOREACH_IJ_OF_SUDOKU(i, j) {
+        Sudoku_Cell *cell = get_cell(grid, i, j);
+        u8 digit = Is_Between(cell->digit, 1, 9) ? cell->digit : 0;
+        input_sudoku_puzzle.grid.digits[j][i] = digit;
+    }
+
+    return input_sudoku_puzzle;
+}
+
+// keeps is_selected and is_hovered, but thats it.
+void place_digit_grid_into_sudoku_grid(Sudoku_Digit_Grid digit_grid, Sudoku_Grid *grid, bool keep_markings) {
+    FOREACH_IJ_OF_SUDOKU(i, j) {
+        Sudoku_Cell *cell = get_cell(grid, i, j);
+
+        { // clear the cell. dont like whats going on here.
+            // this always must be cleared
+            Place_Digit(grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
+
+            if (!keep_markings) {
+                cell->color_bitfield = 0;
+                cell->certain = 0;
+                cell->uncertain = 0;
+                cell->digit_placed_in_solve_mode = false;
+            }
+        }
+
+        u8 digit = digit_grid.digits[j][i];
+
+        if (digit == 0) {
+            // ignore this digit. this is just hove the solver functions, we dont want to place '0' digits.
+            // log_error("digit is equal to zero, what should we do here?");
+        } else {
+            Place_Digit(grid, i, j, digit, .dont_play_sound = true);
+        }
+    }
+}
+
+
+void clear_sudoku_grid(Sudoku_Grid *grid) {
+    FOREACH_IJ_OF_SUDOKU(i, j) {
+        Sudoku_Cell *cell = get_cell(grid, i, j);
+        cell->digit = NO_DIGIT_PLACED;
+
+        cell->certain        = 0;
+        cell->uncertain      = 0;
+        cell->color_bitfield = 0;
+        // TODO this is awkward...
+        cell->digit_placed_in_solve_mode = false;
+    }
+
+    play_sound("Clear Sudoku Grid");
+}
+
 
 
 void sudoku_maybe_handle_key_press(Sudoku *sudoku, Input_Key_Event event) {

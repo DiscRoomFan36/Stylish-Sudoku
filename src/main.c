@@ -6,8 +6,16 @@
 
 
 
+// an easier way to tell if we are in web mode.
+// can use WEB_MODE in an `if` statement.
+#if PLATFORM_WEB
+    #define WEB_MODE true
+#else
+    #define WEB_MODE false
+#endif
 
-#ifdef PLATFORM_WEB
+
+#if WEB_MODE
     #include <emscripten/emscripten.h>
 #endif
 
@@ -289,10 +297,15 @@ int main(void) {
         const char *error = load_sudoku(autosave_path, context->sudoku);
         if (error) {
             log_error("Failed To Load Save '%s': %s", autosave_path, error);
-            // TODO make a "clear grid" function.
-            FOREACH_IJ_OF_SUDOKU(i, j) {
-                Place_Digit(&context->sudoku->grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
+
+            if (WEB_MODE) {
+                // generate a random sudoku on first appearance.
+                Sudoku_Digit_Grid grid = Generate_Random_Sudoku(25);
+                place_digit_grid_into_sudoku_grid(grid, &context->sudoku->grid, false);
+            } else {
+                clear_sudoku_grid(&context->sudoku->grid);
             }
+
         } else {
             log("Successfully loaded save file '%s'", autosave_path);
         }
@@ -307,7 +320,7 @@ int main(void) {
 
 
 
-#ifdef PLATFORM_WEB
+#if WEB_MODE
     printf("Hello WASM!\n");
 
     //
@@ -353,50 +366,6 @@ int main(void) {
 
     return result ? 0 : 1;
 }
-
-
-
-Input_Sudoku_Puzzle sudoku_grid_to_input_sudoku_puzzle(Sudoku_Grid *grid) {
-    Input_Sudoku_Puzzle input_sudoku_puzzle = ZEROED;
-    static_assert(SUDOKU_SIZE == NUM_DIGITS, "these are the same for now, maybe in the future we will have different sized grids for things.");
-
-    FOREACH_IJ_OF_SUDOKU(i, j) {
-        Sudoku_Cell *cell = get_cell(grid, i, j);
-        u8 digit = Is_Between(cell->digit, 1, 9) ? cell->digit : 0;
-        input_sudoku_puzzle.grid.digits[j][i] = digit;
-    }
-
-    return input_sudoku_puzzle;
-}
-
-// keeps is_selected and is_hovered, but thats it.
-void place_digit_grid_into_sudoku_grid(Sudoku_Digit_Grid digit_grid, Sudoku_Grid *grid, bool keep_markings) {
-    FOREACH_IJ_OF_SUDOKU(i, j) {
-        Sudoku_Cell *cell = get_cell(grid, i, j);
-
-        { // clear the cell. dont like whats going on here.
-            // this always must be cleared
-            Place_Digit(grid, i, j, NO_DIGIT_PLACED, .dont_play_sound = true);
-
-            if (!keep_markings) {
-                cell->color_bitfield = 0;
-                cell->certain = 0;
-                cell->uncertain = 0;
-                cell->digit_placed_in_solve_mode = false;
-            }
-        }
-
-        u8 digit = digit_grid.digits[j][i];
-
-        if (digit == 0) {
-            // ignore this digit. this is just hove the solver functions, we dont want to place '0' digits.
-            // log_error("digit is equal to zero, what should we do here?");
-        } else {
-            Place_Digit(grid, i, j, digit, .dont_play_sound = true);
-        }
-    }
-}
-
 
 
 typedef enum {
@@ -734,8 +703,7 @@ void do_one_frame() {
     Theme        *theme        = get_theme();
     Debug_Struct *debug_struct = get_debug_struct();
 
-#ifdef PLATFORM_WEB
-    {
+    if (WEB_MODE) {
         // on the web, the size of the window is not in alignment with what
         // raylib considers the size of the window. the numbers you supply
         // to InitWindow() are treated as gospel, setting the ratio of the
@@ -760,7 +728,6 @@ void do_one_frame() {
             SetWindowSize(context->window_width, context->window_height);
         }
     }
-#endif
 
     // make sure the sudoku grid did not change between frames.
     ASSERT(Sudoku_Grid_Is_The_Same_As_The_Last_Element_In_The_Undo_Buffer(context->sudoku));
@@ -865,10 +832,7 @@ void do_one_frame() {
         }
 
         if (ui_button("Clear Sudoku", &layout_button_area)) {
-            // TODO this is definitely a hack...
-            Sudoku_Digit_Grid zero_grid = ZEROED;
-            place_digit_grid_into_sudoku_grid(zero_grid, &context->sudoku->grid, false);
-
+            clear_sudoku_grid(&context->sudoku->grid);
             if (!sudoku_maybe_add_grid_into_undo_buffer(context->sudoku)) {
                 log("Nothing to clear!");
             }
