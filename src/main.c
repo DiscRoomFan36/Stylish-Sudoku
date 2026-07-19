@@ -27,7 +27,7 @@
 
 
 
-
+// i cant put these anywhere else...
 
 // returns -1 if its not in the array
 internal s64 index_in_array(Int_Array *array, s64 to_find) {
@@ -37,9 +37,11 @@ internal s64 index_in_array(Int_Array *array, s64 to_find) {
     return -1;
 }
 
-
 typedef Array(Vector2) Vector2_Array;
 
+#define TARGET_FPS 60
+
+#define Square(x) ((x)*(x))
 
 
 // helpers and whatnot
@@ -53,7 +55,7 @@ typedef Array(Vector2) Vector2_Array;
 #include "sudoku_solver/sudoku_solver.h"
 #include "sudoku_grid.h"
 
-
+#include "layout.h"
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -255,8 +257,6 @@ internal void toggle_when_pressed(bool *to_toggle, int key) { *to_toggle ^= IsKe
 #define Proper_Mod(x, y) ({ Typeof(y) _y = (y); (((x) % _y) + _y) % _y; })
 
 
-// TODO this needs to see the context. make this a proper .h
-#include "layout.c"
 
 
 
@@ -700,18 +700,23 @@ void do_one_frame() {
 #define THEME_IMPLEMENTATION
 #include "theme.h"
 
+#define INPUT_IMPLEMENTATION
+#include "input.h"
 
-#define SUDOKU_IMPLEMENTATION
-#include "sudoku_grid.h"
 
 #define SOUND_IMPLEMENTATION
 #include "sound.h"
 
-#define INPUT_IMPLEMENTATION
-#include "input.h"
-
 #define LOGGING_IMPLEMENTATION
 #include "logging.h"
 
+
 #define SUDOKU_SOLVER_IMPLEMENTATION
 #include "sudoku_solver/sudoku_solver.h"
+
+#define SUDOKU_IMPLEMENTATION
+#include "sudoku_grid.h"
+
+
+#define LAYOUT_IMPLEMENTATION
+#include "layout.h"

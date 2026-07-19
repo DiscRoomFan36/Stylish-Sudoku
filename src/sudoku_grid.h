@@ -1084,10 +1084,6 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
         toggle_when_pressed(&debug_slow_down_animation, KEY_F5);
         if (debug_slow_down_animation) animation_speed = 0.1;
 
-
-        // square macro is helpful, but it shouldn't be here, maybe up top?
-        #define Square(x) ((x)*(x))
-
         // speed up the animation the more elements there are.
         // to try and catch back up.
         animation_speed *= Square(sudoku->selection_animation_array.count);

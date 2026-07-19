@@ -1,4 +1,7 @@
 
+#ifndef LAYOUT_H_
+#define LAYOUT_H_
+
 // for UI stuff. TODO make into a .h
 
 #include "raylib.h"
@@ -11,10 +14,6 @@
 #include "sound.h"
 #include "theme.h"
 
-// TODO @copypasta
-#define TARGET_FPS 60
-
-
 
 typedef enum {
     LAY_UP,
@@ -23,16 +22,7 @@ typedef enum {
     LAY_RIGHT,
 } Layout_Direction;
 
-internal const char *layout_direction_to_string(Layout_Direction direction) {
-    switch (direction) {
-    case LAY_UP   : return "Lay_Up";
-    case LAY_DOWN : return "Lay_Down";
-    case LAY_LEFT : return "Lay_Left";
-    case LAY_RIGHT: return "Lay_Right";
-
-    default: return temp_sprintf("(UNKNOWN{%d})", direction);
-    }
-}
+internal const char *layout_direction_to_string(Layout_Direction direction);
 
 
 typedef enum {
@@ -46,7 +36,73 @@ typedef struct {
     f64 value;
 } Layout_Amount;
 
-internal const char *layout_amount_to_string(Layout_Amount amount) {
+internal const char *layout_amount_to_string(Layout_Amount amount);
+internal Layout_Amount Amount(Layout_Amount_Kind kind, f64 value);
+
+internal Rectangle layout_take_from(Rectangle *layout, Layout_Direction direction, Layout_Amount amount);
+
+
+// colors like this are better to lerp / smoothly transition from.
+typedef Vector4 Float_Color;
+
+internal Float_Color color_to_float_color(Color color);
+internal Color float_color_to_color(Float_Color float_color);
+
+internal void move_float_color_towards_color(Float_Color *float_color, Color color, f64 distance);
+
+
+typedef struct UI_Button_Data {
+    String text;
+    const char *text_c_str;
+
+    f64 time_since_last_hovered;
+    f64 time_since_last_clicked;
+
+    struct {
+        Float_Color background_color;
+        Float_Color boarder_color;
+        Float_Color text_color;
+    } current_theme;
+
+    // useful to check if this was just made this frame.
+    bool was_created_this_frame;
+
+    Source_Code_Location source_code_location;
+
+    // probably wasteful to have 1 allocator per button,
+    // but where else are we gonna get the memory for the text?
+    Arena *allocator;
+} UI_Button_Data;
+
+typedef Array(UI_Button_Data) UI_Button_Data_Array;
+
+
+internal UI_Button_Data *get_ui_button_data(String text, Source_Code_Location source_code_location);
+
+#define ui_button(text, layout_ptr) ui_button_impl(text, layout_ptr, Get_Source_Code_Location())
+
+internal bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location source_code_location);
+
+#endif // LAYOUT_H_
+
+
+
+
+#ifdef LAYOUT_IMPLEMENTATION
+
+const char *layout_direction_to_string(Layout_Direction direction) {
+    switch (direction) {
+    case LAY_UP   : return "Lay_Up";
+    case LAY_DOWN : return "Lay_Down";
+    case LAY_LEFT : return "Lay_Left";
+    case LAY_RIGHT: return "Lay_Right";
+
+    default: return temp_sprintf("(UNKNOWN{%d})", direction);
+    }
+}
+
+
+const char *layout_amount_to_string(Layout_Amount amount) {
     const char *kind_string = temp_sprintf("(UNKNOWN{%d})", amount.kind);
     switch (amount.kind) {
     case LAY_IN_PIXELS   : { kind_string = "Lay_In_Pixels";   } break;
@@ -56,13 +112,12 @@ internal const char *layout_amount_to_string(Layout_Amount amount) {
     return temp_sprintf("(Layout_Amount){ .kind = %s, .value = %.3f }", kind_string, amount.value);
 }
 
-internal Layout_Amount Amount(Layout_Amount_Kind kind, f64 value) {
+Layout_Amount Amount(Layout_Amount_Kind kind, f64 value) {
     Layout_Amount result = { .kind = kind, .value = value };
     return result;
 }
 
-
-internal Rectangle layout_take_from(Rectangle *layout, Layout_Direction direction, Layout_Amount amount) {
+Rectangle layout_take_from(Rectangle *layout, Layout_Direction direction, Layout_Amount amount) {
     f64 real_amount = amount.value;
 
     f64 width_or_height = (direction == LAY_UP || direction == LAY_DOWN) ? layout->height : layout->width;
@@ -139,8 +194,6 @@ internal Rectangle layout_take_from(Rectangle *layout, Layout_Direction directio
 }
 
 
-// colors like this are better to lerp / smoothly transition from.
-typedef Vector4 Float_Color;
 
 Float_Color color_to_float_color(Color color) {
     Float_Color float_color = {
@@ -175,31 +228,6 @@ void move_float_color_towards_color(Float_Color *float_color, Color color, f64 d
     *float_color = new_float_color;
 }
 
-
-typedef struct {
-    String text;
-    const char *text_c_str;
-
-    f64 time_since_last_hovered;
-    f64 time_since_last_clicked;
-
-    struct {
-        Float_Color background_color;
-        Float_Color boarder_color;
-        Float_Color text_color;
-    } current_theme;
-
-    // useful to check if this was just made this frame.
-    bool was_created_this_frame;
-
-    Source_Code_Location source_code_location;
-
-    // probably wasteful to have 1 allocator per button,
-    // but where else are we gonna get the memory for the text?
-    Arena *allocator;
-} UI_Button_Data;
-
-typedef Array(UI_Button_Data) UI_Button_Data_Array;
 
 // TODO get an allocator with pool_get()
 global_variable UI_Button_Data_Array global_ui_button_data_array = ZEROED;
@@ -236,11 +264,7 @@ UI_Button_Data *get_ui_button_data(String text, Source_Code_Location source_code
     return new_button_data;
 }
 
-
-
-#define ui_button(text, layout_ptr) ui_button_impl(text, layout_ptr, Get_Source_Code_Location())
-
-internal bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location source_code_location) {
+bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location source_code_location) {
     Input *input = get_input();
     Theme *theme = get_theme();
 
@@ -343,3 +367,5 @@ internal bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_L
 
     return button_is_clicked;
 }
+
+#endif // LAYOUT_IMPLEMENTATION
