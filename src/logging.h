@@ -108,7 +108,9 @@ void log_impl(Log_Level level, const char *_message, Source_Code_Location source
     String message = S(_message);
 
     // no newlines at the end please.
-    ASSERT(message.data[message.length-1] != '\n');
+    if (message.data[message.length-1] == '\n') {
+        PANIC(SCL_Fmt" No newlines allowed at the end of the message!", SCL_Arg(source_code_location));
+    }
 
     // check if this logged message is allready in the messages, to de-dup
     for (u64 i = 0; i < context->logged_messages_to_display.count; i++) {
