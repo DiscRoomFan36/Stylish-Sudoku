@@ -25,25 +25,6 @@
 
 #include "raylib_helpers.c"
 
-
-
-// i cant put these anywhere else...
-
-// returns -1 if its not in the array
-internal s64 index_in_array(Int_Array *array, s64 to_find) {
-    for (u64 i = 0; i < array->count; i++) {
-        if (array->items[i] == to_find)    return i;
-    }
-    return -1;
-}
-
-typedef Array(Vector2) Vector2_Array;
-
-#define TARGET_FPS 60
-
-#define Square(x) ((x)*(x))
-
-
 // helpers and whatnot
 #include "theme.h"
 #include "input.h"
@@ -57,6 +38,27 @@ typedef Array(Vector2) Vector2_Array;
 
 #include "layout.h"
 
+
+// i cant put these anywhere else...
+
+// returns -1 if its not in the array
+internal s64 index_in_array(Int_Array *array, s64 to_find) {
+    for (u64 i = 0; i < array->count; i++) {
+        if (array->items[i] == to_find)    return i;
+    }
+    return -1;
+}
+
+#define Square(x) ((x)*(x))
+
+
+
+#define TARGET_FPS 60
+
+// inital window size
+#define WINDOW_WIDTH_FACTOR         16
+#define WINDOW_HEIGHT_FACTOR         9
+#define INITAL_WINDOW_SIZE_FACTOR   80
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
@@ -281,7 +283,11 @@ int main(void) {
     SetTraceLogLevel(LOG_WARNING);          // only show warning or worse logs, the console is being spammed in LOG_INFO mode.
 
     // init the raylib window.
-    InitWindow(16*80, 9*80, "Sudoku");
+    InitWindow(
+        WINDOW_WIDTH_FACTOR  * INITAL_WINDOW_SIZE_FACTOR,
+        WINDOW_HEIGHT_FACTOR * INITAL_WINDOW_SIZE_FACTOR,
+        "Sudoku"
+    );
 
     // in my application context
     init_context();
