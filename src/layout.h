@@ -46,7 +46,7 @@ internal Rectangle layout_take_from(Rectangle *layout, Layout_Direction directio
 typedef Vector4 Float_Color;
 
 internal Float_Color color_to_float_color(Color color);
-internal Color float_color_to_color(Float_Color float_color);
+internal Color color_from_float_color(Float_Color float_color);
 
 internal void move_float_color_towards_color(Float_Color *float_color, Color color, f64 distance);
 
@@ -205,7 +205,7 @@ Float_Color color_to_float_color(Color color) {
     return float_color;
 }
 
-Color float_color_to_color(Float_Color float_color) {
+Color color_from_float_color(Float_Color float_color) {
     // clamp values from [0..1]
     Float_Color clamped = {
         .x = Clamp(float_color.x, 0, 1),
@@ -268,7 +268,6 @@ bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location s
     Input *input = get_input();
     Theme *theme = get_theme();
 
-
     UI_Button_Data *ui_button_data = get_ui_button_data(S(_text), source_code_location);
 
     if (ui_button_data->was_created_this_frame) {
@@ -280,12 +279,28 @@ bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location s
         ui_button_data->current_theme.text_color       = color_to_float_color(theme->ui.button.base.text_color      );
     }
 
-    Font_And_Size font_and_size = GetFontWithSize(theme->ui.button.font_size);
+    // something to scale the entire ui by,
+    f64 size_factor = 1;
+    {
+        Context *context = get_context();
+        s32 window_size = Min(context->window_width, context->window_height);
+
+        // TODO magic constants
+        size_factor = Remap(window_size, 0, 800, 0.1, 1);
+    }
+
+    // ever7thing is effected by the theme.
+    f64 font_size      = theme->ui.button.font_size       * size_factor;
+    f64 text_padding   = theme->ui.button.text_padding    * size_factor;
+    f64 button_padding = theme->ui.between_button_padding * size_factor;
+    f64 roundness      = theme->ui.button.roundness; // roundness is not effected by size.
+    f64 boarder_size   = theme->ui.button.boarder_size    * size_factor;
+
+
+    Font_And_Size font_and_size = GetFontWithSize(font_size);
 
     Vector2 text_size = MeasureTextEx(font_and_size.font, ui_button_data->text_c_str, font_and_size.size, 0);
 
-    f64 text_padding   = theme->ui.button.text_padding;
-    f64 button_padding = theme->ui.between_button_padding;
     // only add button padding to the bottom.
     Rectangle button_total_area = layout_take_from(layout, LAY_UP, Amount(LAY_IN_PIXELS, text_size.y + text_padding*2 + button_padding));
 
@@ -360,10 +375,10 @@ bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location s
     //        by itself, and these 2 function calls can produce different results
     //        for what the segments need to be.)
     const s32 segments = 5;
-    DrawRectangleRounded       (button_bounds, theme->ui.button.roundness, segments,                                float_color_to_color(ui_button_data->current_theme.background_color));
-    DrawRectangleRoundedLinesEx(button_bounds, theme->ui.button.roundness, segments, theme->ui.button.boarder_size, float_color_to_color(ui_button_data->current_theme.boarder_color));
+    DrawRectangleRounded       (button_bounds, roundness, segments,               color_from_float_color(ui_button_data->current_theme.background_color));
+    DrawRectangleRoundedLinesEx(button_bounds, roundness, segments, boarder_size, color_from_float_color(ui_button_data->current_theme.boarder_color));
 
-    DrawTextCentered(font_and_size, ui_button_data->text_c_str, RectangleCenter(button_bounds), float_color_to_color(ui_button_data->current_theme.text_color));
+    DrawTextCentered(font_and_size, ui_button_data->text_c_str, RectangleCenter(button_bounds), color_from_float_color(ui_button_data->current_theme.text_color));
 
     return button_is_clicked;
 }
