@@ -511,8 +511,11 @@ void do_one_frame() {
 
         if (ui_button("Clear Sudoku", &layout_button_area)) {
             clear_sudoku_grid(&context->sudoku->grid);
+
             if (!sudoku_maybe_add_grid_into_undo_buffer(context->sudoku)) {
                 log("Nothing to clear!");
+            } else {
+                play_sound(SE_SUDOKU_CLEAR_GRID);
             }
         }
 

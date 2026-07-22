@@ -279,12 +279,12 @@ void _Place_Digit(Sudoku_Grid *grid, s8 i, s8 j, s8 digit_to_place, Place_Digit_
     // sound stuff
     if (!opt.dont_play_sound) {
         if (cell->digit == NO_DIGIT_PLACED) {
-            play_sound("digit_placed_on_empty");
+            play_sound(SE_SUDOKU_DIGIT_PLACED_ON_EMPTY);
         } else {
             if (digit_to_place == NO_DIGIT_PLACED) {
-                play_sound("digit_placed_to_erase");
+                play_sound(SE_SUDOKU_DIGIT_PLACED_TO_ERASE);
             } else {
-                play_sound("digit_placed_to_overwrite");
+                play_sound(SE_SUDOKU_DIGIT_PLACED_TO_OVERWRITE);
             }
         }
     }
@@ -332,7 +332,7 @@ void sudoku_grid_changed(Sudoku *sudoku) {
 }
 
 bool undo_sudoku(Sudoku *sudoku) {
-    play_sound("sudoku_undo");
+    play_sound(SE_SUDOKU_UNDO);
     if (sudoku->undo_buffer.count > 1) {
         sudoku->undo_buffer.count   -= 1;
         sudoku->redo_count          += 1;
@@ -346,7 +346,7 @@ bool undo_sudoku(Sudoku *sudoku) {
     return false;
 }
 bool redo_sudoku(Sudoku *sudoku) {
-    play_sound("sudoku_redo");
+    play_sound(SE_SUDOKU_REDO);
     if (sudoku->redo_count > 0) {
         sudoku->undo_buffer.count   += 1;
         sudoku->redo_count          -= 1;
@@ -429,8 +429,6 @@ void clear_sudoku_grid(Sudoku_Grid *grid) {
         // TODO this is awkward...
         cell->digit_placed_in_solve_mode = false;
     }
-
-    play_sound("Clear Sudoku Grid");
 }
 
 
@@ -682,8 +680,11 @@ void sudoku_maybe_handle_key_press(Sudoku *sudoku, Input_Key_Event event) {
             ASSERT(selected_changed == mem_eq);
 
             if (selected_changed) {
-                // this might play a lot of sounds at once.
-                play_sound("selection_changed");
+                // NOTE there are 2 of these calls for playing a
+                // sound when selection changes, this one handles
+                // key presses, the other handles mouse clicks.
+                play_sound(SE_SUDOKU_SELECTION_CHANGED);
+
                 Selected_Animation new_animation = {
                     .t_animation   = 0,
                     .prev_grid_state = previous_grid,
@@ -969,7 +970,8 @@ void handle_and_draw_sudoku(Sudoku *sudoku, s32 x, s32 y, s32 width, s32 height)
             }
 
             if (selected_changed) {
-                play_sound("selection_changed");
+                play_sound(SE_SUDOKU_SELECTION_CHANGED);
+
                 Selected_Animation new_animation = {
                     .t_animation   = 0,
                     .prev_grid_state = previous_grid,
@@ -2259,7 +2261,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary draw_bounds) {
 
 
 
-#define MAX_TEMP_FILE_SIZE      (1 * MEGABYTE)
+#define MAX_TEMP_FILE_SIZE      (32 * MEGABYTE)
 // overwrites temporary buffer every call.
 internal String temp_Read_Entire_File(const char *filename) {
     local_persist u8 temp_file_storeage[MAX_TEMP_FILE_SIZE];

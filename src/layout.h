@@ -321,6 +321,8 @@ bool ui_button_impl(const char *_text, Rectangle *layout, Source_Code_Location s
         //
         // maybe we want a function?
         // capture_click(MOUSE_LEFT);
+
+        play_sound(SE_UI_BUTTON_CLICKED);
     }
 
     { // move the current theme towards the new theme if they are different.
