@@ -505,7 +505,7 @@ void do_one_frame() {
         }
 
 
-        if (ui_button("Toggle Build / Solve Mode", &layout_button_area)) {
+        if (ui_button("Toggle Solve Mode", &layout_button_area)) {
             context->in_solve_mode = !context->in_solve_mode;
         }
 
