@@ -2261,7 +2261,7 @@ void draw_sudoku_selection(Sudoku *sudoku, Draw_Sudoku_Boundary draw_bounds) {
 
 
 
-#define MAX_TEMP_FILE_SIZE      (32 * MEGABYTE)
+#define MAX_TEMP_FILE_SIZE      (8 * MEGABYTE)
 // overwrites temporary buffer every call.
 internal String temp_Read_Entire_File(const char *filename) {
     local_persist u8 temp_file_storeage[MAX_TEMP_FILE_SIZE];
