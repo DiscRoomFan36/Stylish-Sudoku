@@ -357,11 +357,14 @@ bool do_build_wasm(void) {
 
 
     cmd_append(&cmd, "--preload-file", "./assets/");        // Specify a resources directory for data compilation (it will generate a .data file)
-    cmd_append(&cmd, "-s", "TOTAL_MEMORY=67108864");        // Specify a heap memory size in bytes (default = 16MB) (67108864 = 64MB)
+    cmd_append(&cmd, "-s", "TOTAL_MEMORY=64MB");            // Specify a heap memory size in bytes (default = 16MB)
     cmd_append(&cmd, "-s", "ALLOW_MEMORY_GROWTH=1");        // Allow automatic heap memory resizing -> NOT RECOMMENDED!
     cmd_append(&cmd, "-s", "FORCE_FILESYSTEM=1");           // Force filesystem creation to load/save files data (for example if you need to support save-game or drag&drop files)
     cmd_append(&cmd, "-s", "ASSERTIONS=1");                 // Enable runtime checks for common memory allocation errors (-O1 and above turn it off)
-
+    // for sound systems.
+    cmd_append(&cmd, "-s", "EXPORTED_RUNTIME_METHODS=HEAPF32");
+    // there was a stack overrun, this fixes the problem
+    cmd_append(&cmd, "-s", "STACK_SIZE=8MB");
 
     if (!cmd_run(&cmd)) return false;
 
