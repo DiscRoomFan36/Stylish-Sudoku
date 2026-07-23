@@ -24,7 +24,15 @@ typedef enum Sound_Event {
 
 typedef struct {
     String name;
-    Sound raylib_sound;
+    Sound original_raylib_sound;
+
+    // a circular buffer of duplicate sounds.
+    u64 duplicate_sound_index;
+    // an array of Alias sounds, array length is
+    // how many of the same sound you can play at once.
+    //
+    // older sounds will be "overwritten" (aka restarting from the begining).
+    Sound duplicate_sounds_array[8];
 } A_Sound;
 
 typedef Array(A_Sound) A_Sound_Array;
@@ -66,7 +74,11 @@ void uninit_sounds(void) {
 
     for (u64 i = 0; i < context->global_sound_array.count; i++) {
         A_Sound *sound = &context->global_sound_array.items[i];
-        UnloadSound(sound->raylib_sound);
+        // doing raylib sound interface stuff.
+        for (u64 i = 0; i < Array_Len(sound->duplicate_sounds_array); i++) {
+            UnloadSoundAlias(sound->duplicate_sounds_array[i]);
+        }
+        UnloadSound(sound->original_raylib_sound);
     }
 
     Pool_Release(&context->pool, context->global_sound_array.allocator);
@@ -147,26 +159,34 @@ void play_sound(Sound_Event event) {
         // add a new sound
         found_sound = Array_Add(&context->global_sound_array, 1, true);
         found_sound->name = String_Duplicate(sound_name, .allocator = context->global_sound_array.allocator, .null_terminate = true);
-        found_sound->raylib_sound = LoadSound(sound_path);
-        // TODO
-        // LoadSoundAlias() use this to make copies to play at the same time.
-        // UnloadSoundAlias() use to unload
-        //
-        // make 10 alias's of each sound, circler buffer technique.
+        found_sound->original_raylib_sound = LoadSound(sound_path);
+        // the original_raylib_sound could be invalid at this point.
+        // but raylib is merciful to us, and will just not do anything.
+        for (u64 i = 0; i < Array_Len(found_sound->duplicate_sounds_array); i++) {
+            found_sound->duplicate_sounds_array[i] = LoadSoundAlias(found_sound->original_raylib_sound);
+        }
 
-        if (!IsSoundValid(found_sound->raylib_sound)) {
+        if (!IsSoundValid(found_sound->original_raylib_sound)) {
             log_error("When trying to load sound '"S_Fmt"', at path '%s', sound is not valid", S_Arg(found_sound->name), sound_path);
 
-            FilePathList files = LoadDirectoryFiles(SOUND_FOLDER_PATH);
-            printf("All files in directory:\n");
-            for (u64 i = 0; i < files.count; i++) {
-                printf(    "%zu: %s\n", i, files.paths[i]);
-            }
+            // this prints out all files in a directory,
+            // for debugging purposes.
+            //
+            // FilePathList files = LoadDirectoryFiles(SOUND_FOLDER_PATH);
+            // printf("All files in directory:\n");
+            // for (u64 i = 0; i < files.count; i++) {
+            //     printf(    "%zu: %s\n", i, files.paths[i]);
+            // }
         }
     }
 
-    // play the sound
-    PlaySound(found_sound->raylib_sound);
+    { // play the sound
+        // were being super careful here, no array out of bounds for us.
+        u64 sound_index = found_sound->duplicate_sound_index % Array_Len(found_sound->duplicate_sounds_array);
+        Sound sound = found_sound->duplicate_sounds_array[sound_index];
+        PlaySound(sound);
+        found_sound->duplicate_sound_index = (found_sound->duplicate_sound_index + 1) % Array_Len(found_sound->duplicate_sounds_array);
+    }
 }
 
 
