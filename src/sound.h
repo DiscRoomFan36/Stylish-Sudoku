@@ -113,9 +113,11 @@ internal const char *sound_event_to_name(Sound_Event event) {
 // sounds for the same event.
 internal String get_sounds_for_event(Sound_Event event) {
     switch (event) {
-    case SE_SUDOKU_DIGIT_PLACED_ON_EMPTY: return S("");
-    case SE_SUDOKU_DIGIT_PLACED_TO_ERASE: return S("");
-    case SE_SUDOKU_DIGIT_PLACED_TO_OVERWRITE: return S("");
+    // TODO need more sounds for this... one sound gets annoying.
+    case SE_SUDOKU_DIGIT_PLACED_ON_EMPTY:     return S("writing_sound.mp3");
+    case SE_SUDOKU_DIGIT_PLACED_TO_OVERWRITE: return S("writing_sound.mp3");
+
+    case SE_SUDOKU_DIGIT_PLACED_TO_ERASE:     return S("");
 
     case SE_SUDOKU_UNDO: return S("");
     case SE_SUDOKU_REDO: return S("");
