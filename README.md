@@ -59,7 +59,6 @@ Trust me on this one.
 
 ### A Web Version!
 
-Currently buggy as all hell. (the mouse doesn't work among other things)
+Currently dose not have save and load, but is the same as the native version.
 
-*TODO maybe put an image here?*
-
+![Available Here!](https://discroomfan36.github.io/Stylish-Sudoku/)
