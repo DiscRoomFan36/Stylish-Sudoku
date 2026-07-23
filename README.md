@@ -1,7 +1,7 @@
 
 # Stylish Sudoku
 
-A simple stylish sudoku player. ![Play on the web here!](https://discroomfan36.github.io/Stylish-Sudoku/)
+A simple stylish sudoku player. [Play on the web here!](https://discroomfan36.github.io/Stylish-Sudoku/)
 
 
 ![Stylish Sudoku Player Still Image](./readme_assets/nice_display_image.png)
@@ -62,4 +62,4 @@ Trust me on this one.
 
 Currently dose not have save and load, but is the same as the native version.
 
-![Available Here!](https://discroomfan36.github.io/Stylish-Sudoku/)
+[Available Here!](https://discroomfan36.github.io/Stylish-Sudoku/)
