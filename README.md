@@ -1,7 +1,8 @@
 
 # Stylish Sudoku
 
-A simple stylish sudoku player.
+A simple stylish sudoku player. ![Play on the web here!](https://discroomfan36.github.io/Stylish-Sudoku/)
+
 
 ![Stylish Sudoku Player Still Image](./readme_assets/nice_display_image.png)
 
